@@ -35,7 +35,7 @@ export default function LoginPage() {
         </div>
         
         <div className="flex flex-col items-center gap-2 text-center">
-          <h1 className="text-3xl font-bold tracking-tight text-[oklch(0.94_0.004_90)]">Daylog</h1>
+          <h1 className="text-3xl font-bold tracking-tight text-[oklch(0.94_0.004_90)]">Lanner</h1>
           <p className="text-[oklch(0.62_0.006_90)] text-sm leading-relaxed max-w-xs">
             Sign in to start mapping your day with intentional, time-blocked clarity.
           </p>

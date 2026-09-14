@@ -559,7 +559,7 @@ export default function TimelineView({
       {/* Mobile Header (< md) */}
       <header className="flex md:hidden w-full items-center justify-between px-3 py-2.5 sm:px-4 border-b border-[oklch(0.24_0.006_90)] bg-[oklch(0.18_0.006_90)] shrink-0 z-30">
         <span className="font-bold text-[16px] tracking-tight text-[oklch(0.94_0.004_90)]">
-          Daylog
+          Lanner
         </span>
 
         <div className="flex items-center gap-1.5">
@@ -607,7 +607,7 @@ export default function TimelineView({
       <header className="hidden md:flex w-full items-center justify-between px-8 py-4 border-b border-[oklch(0.24_0.006_90)] bg-[oklch(0.18_0.006_90)] shrink-0 z-30">
         <div className="flex items-center gap-3">
           <span className="font-bold text-xl tracking-tight text-[oklch(0.94_0.004_90)]">
-            Daylog
+            Lanner
           </span>
         </div>
 
@@ -1331,7 +1331,7 @@ export default function TimelineView({
                     Cascade behavior
                   </label>
                   <div className="text-xs text-[oklch(0.55_0.006_90)] mb-3 leading-relaxed">
-                    When moving a block pushes it into the next one, should Daylog offer to shift the rest of your day too?
+                    When moving a block pushes it into the next one, should Lanner offer to shift the rest of your day too?
                   </div>
                   <div className="flex bg-[oklch(0.21_0.006_90)] border border-[oklch(0.3_0.006_90)] rounded-xl p-1 gap-1">
                     <button
