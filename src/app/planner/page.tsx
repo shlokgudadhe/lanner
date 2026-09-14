@@ -19,16 +19,23 @@ export default async function PlannerPage(props: { searchParams: Promise<{ day?:
   
   const { data: profile } = await supabase
     .from('profiles')
-    .select('cascade_preference')
+    .select('timezone, cascade_preference')
     .eq('id', data.user.id)
     .single()
     
   const cascadePreference = profile?.cascade_preference || 'ask'
+  const timezone = profile?.timezone || 'America/Los_Angeles'
 
   return (
-    <main className="h-screen flex flex-col bg-slate-50">
-      <TimelineView initialItems={items} day={day} cascadePreference={cascadePreference} />
+    <main className="min-h-screen bg-[oklch(0.14_0.006_90)] flex flex-col">
+      <TimelineView 
+        initialItems={items} 
+        day={day} 
+        cascadePreference={cascadePreference}
+        initialTimezone={timezone}
+      />
     </main>
   )
 }
+
 

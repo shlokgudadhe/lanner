@@ -1,8 +1,9 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,400..700;1,400..700&family=Work+Sans:ital,wght@0,400..700;1,400..700&display=swap');
 @import "tailwindcss";
 
 @theme inline {
-  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
-  --font-mono: var(--font-jetbrains-mono), ui-monospace, SFMono-Regular, monospace;
+  --font-sans: 'Work Sans', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-muted: var(--muted);
@@ -12,30 +13,41 @@
 
 @layer base {
   :root {
-    --background: #ffffff;
-    --foreground: #09090b;
-    --muted: #f4f4f5;
-    --muted-foreground: #71717a;
-    --border: #e4e4e7;
-  }
-  
-  .dark {
-    --background: #09090b;
-    --foreground: #fafafa;
-    --muted: #27272a;
-    --muted-foreground: #a1a1aa;
-    --border: #27272a;
+    --background: oklch(0.14 0.006 90);
+    --foreground: oklch(0.92 0.004 90);
+    --muted: oklch(0.22 0.006 90);
+    --muted-foreground: oklch(0.6 0.006 90);
+    --border: oklch(0.26 0.006 90);
   }
 }
 
-@layer utilities {
-  .bg-hatch {
-    background-image: repeating-linear-gradient(
-      45deg,
-      transparent,
-      transparent 10px,
-      var(--muted) 10px,
-      var(--muted) 20px
-    );
-  }
+.hatch {
+  background-image: repeating-linear-gradient(
+    135deg,
+    oklch(0.24 0.006 90) 0px,
+    oklch(0.24 0.006 90) 5px,
+    oklch(0.205 0.006 90) 5px,
+    oklch(0.205 0.006 90) 10px
+  );
 }
+
+@keyframes toastIn {
+  from { opacity: 0; transform: translate(-50%, 10px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+
+@keyframes sheetUp {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+input[type="time"]::-webkit-calendar-picker-indicator {
+  filter: invert(1);
+  opacity: 0.5;
+}
+

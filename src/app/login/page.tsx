@@ -28,17 +28,24 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center p-24">
-      <div className="max-w-md w-full flex flex-col items-center gap-8">
-        <h1 className="text-4xl font-bold text-center">Day Planner</h1>
-        <p className="text-center text-gray-600">
-          Sign in to start planning your day.
-        </p>
+    <div className="flex min-h-screen flex-col items-center justify-center p-6 bg-[oklch(0.14_0.006_90)] text-[oklch(0.92_0.004_90)] font-sans">
+      <div className="max-w-md w-full flex flex-col items-center gap-8 bg-[oklch(0.18_0.006_90)] border border-[oklch(0.28_0.006_90)] rounded-3xl p-8 sm:p-10 shadow-2xl">
+        <div className="hatch w-16 h-16 rounded-2xl border border-[oklch(0.32_0.006_90)] flex items-center justify-center shadow-lg">
+          <span className="text-[#d9a441] font-mono text-2xl font-bold">D</span>
+        </div>
+        
+        <div className="flex flex-col items-center gap-2 text-center">
+          <h1 className="text-3xl font-bold tracking-tight text-[oklch(0.94_0.004_90)]">Daylog</h1>
+          <p className="text-[oklch(0.62_0.006_90)] text-sm leading-relaxed max-w-xs">
+            Sign in to start mapping your day with intentional, time-blocked clarity.
+          </p>
+        </div>
+
         <button
           onClick={handleGoogleLogin}
-          className="w-full flex items-center justify-center gap-3 bg-white text-gray-800 border border-gray-300 py-3 px-4 rounded-md shadow-sm hover:bg-gray-50 transition-colors font-medium"
+          className="w-full flex items-center justify-center gap-3 bg-[oklch(0.22_0.006_90)] text-[oklch(0.92_0.004_90)] border border-[oklch(0.34_0.006_90)] py-3.5 px-5 rounded-xl shadow-md hover:bg-[oklch(0.26_0.006_90)] hover:border-[#d9a441]/50 transition-all font-medium text-sm cursor-pointer"
         >
-          <svg className="w-5 h-5" viewBox="0 0 24 24">
+          <svg className="w-5 h-5 flex-shrink-0" viewBox="0 0 24 24">
             <path
               d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
               fill="#4285F4"
@@ -55,11 +62,11 @@ export default function LoginPage() {
               d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
               fill="#EA4335"
             />
-            <path d="M1 1h22v22H1z" fill="none" />
           </svg>
-          Sign in with Google
+          Continue with Google
         </button>
       </div>
     </div>
   )
 }
+
