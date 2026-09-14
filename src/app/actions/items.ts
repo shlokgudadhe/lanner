@@ -45,12 +45,26 @@ export async function createItem(item: Partial<PlannerItem>) {
     ? existingItems[0].sort_order + 1 
     : 1
   
-  const { data, error } = await supabase
+  let insertPayload: any = { ...item, sort_order: nextSortOrder, user_id: user.id }
+  let { data, error } = await supabase
     .from('items')
-    .insert({ ...item, sort_order: nextSortOrder, user_id: user.id })
+    .insert(insertPayload)
     .select()
     .single()
     
+  if (error && error.message?.includes('description')) {
+    const { description, ...withoutDesc } = insertPayload
+    const fallback = await supabase
+      .from('items')
+      .insert(withoutDesc)
+      .select()
+      .single()
+    if (!fallback.error) {
+      data = { ...fallback.data, description: description || null }
+      error = null
+    }
+  }
+
   if (error) {
     console.error('Insert error:', error)
     throw new Error(`Supabase Error: ${error.message} - ${error.details} - ${error.hint}`)
@@ -62,13 +76,27 @@ export async function createItem(item: Partial<PlannerItem>) {
 export async function updateItem(id: string, updates: Partial<PlannerItem>) {
   const supabase = await createClient()
   
-  const { data, error } = await supabase
+  let { data, error } = await supabase
     .from('items')
     .update(updates)
     .eq('id', id)
     .select()
     .single()
     
+  if (error && error.message?.includes('description')) {
+    const { description, ...withoutDesc } = updates
+    const fallback = await supabase
+      .from('items')
+      .update(withoutDesc)
+      .eq('id', id)
+      .select()
+      .single()
+    if (!fallback.error) {
+      data = { ...fallback.data, description: description || null }
+      error = null
+    }
+  }
+
   if (error) {
     console.error('Update error:', error)
     throw new Error(`Supabase Error: ${error.message} - ${error.details} - ${error.hint}`)

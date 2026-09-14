@@ -32,6 +32,7 @@ interface LocalBlock {
   id: string
   type: 'task' | 'buffer'
   title: string
+  description?: string | null
   startMin: number
   endMin: number
   completed: boolean
@@ -53,6 +54,7 @@ export default function TimelineView({
   // Local state for planner blocks
   const [blocks, setBlocks] = useState<LocalBlock[]>([])
   const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null)
+  const [detailBlock, setDetailBlock] = useState<LocalBlock | null>(null)
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [now, setNow] = useState(new Date())
 
@@ -69,6 +71,7 @@ export default function TimelineView({
     draft: {
       type: 'task' | 'buffer'
       title: string
+      description?: string
       startStr: string
       endStr: string
     }
@@ -76,16 +79,19 @@ export default function TimelineView({
 
   const [panel, setPanel] = useState<'settings' | 'review' | null>(null)
   const [cascadePrompt, setCascadePrompt] = useState<{
-    chain: string[]
-    delta: number
-    count: number
+    direction: 'up' | 'down'
+    draggedId: string
+    pushChain: string[]
+    pushDelta: number
+    fillChain: string[]
+    fillDelta: number
     snapshot: any[]
   } | null>(null)
 
   const [toast, setToast] = useState<{ msg: string } | null>(null)
   const toastTimerRef = useRef<NodeJS.Timeout | null>(null)
 
-  // Drag ref
+  // Drag & movement refs
   const dragRef = useRef<{
     mode: 'move' | 'resize'
     id: string
@@ -93,6 +99,7 @@ export default function TimelineView({
     origStart: number
     origEnd: number
   } | null>(null)
+  const hasMovedRef = useRef<boolean>(false)
 
   const trackRef = useRef<HTMLDivElement>(null)
 
@@ -126,6 +133,7 @@ export default function TimelineView({
           id: i.id,
           type: (i.is_buffer ? 'buffer' : 'task') as 'task' | 'buffer',
           title: i.title || (i.is_buffer ? 'Buffer' : 'Untitled'),
+          description: i.description || null,
           startMin: Math.max(0, startMin),
           endMin: Math.max(startMin + 5, endMin),
           completed: !!i.is_completed,
@@ -166,6 +174,7 @@ export default function TimelineView({
                   id: newItem.id,
                   type: (newItem.is_buffer ? 'buffer' : 'task') as 'task' | 'buffer',
                   title: newItem.title || (newItem.is_buffer ? 'Buffer' : 'Untitled'),
+                  description: newItem.description || null,
                   startMin: differenceInMinutes(start, dayStart),
                   endMin: differenceInMinutes(end, dayStart),
                   completed: !!newItem.is_completed,
@@ -188,6 +197,7 @@ export default function TimelineView({
                   id: updatedItem.id,
                   type: (updatedItem.is_buffer ? 'buffer' : 'task') as 'task' | 'buffer',
                   title: updatedItem.title || (updatedItem.is_buffer ? 'Buffer' : 'Untitled'),
+                  description: updatedItem.description || null,
                   startMin: differenceInMinutes(start, dayStart),
                   endMin: differenceInMinutes(end, dayStart),
                   completed: !!updatedItem.is_completed,
@@ -278,6 +288,7 @@ export default function TimelineView({
                 id: item.id,
                 type: (item.is_buffer ? 'buffer' : 'task') as 'task' | 'buffer',
                 title: item.title || (item.is_buffer ? 'Buffer' : 'Untitled'),
+                description: item.description || null,
                 startMin: differenceInMinutes(start, dayStart),
                 endMin: differenceInMinutes(end, dayStart),
                 completed: !!item.is_completed,
@@ -370,6 +381,7 @@ export default function TimelineView({
       draft: {
         type: 'task',
         title: '',
+        description: '',
         startStr: fmt24(Math.min(MIN_END - 30, Math.max(MIN_START, Math.floor(nowMinutes / 30) * 30 || 600))),
         endStr: fmt24(Math.min(MIN_END, Math.max(MIN_START + 30, (Math.floor(nowMinutes / 30) * 30 || 600) + 30)))
       }
@@ -383,6 +395,7 @@ export default function TimelineView({
       draft: {
         type: block.type,
         title: block.type === 'buffer' ? (block.title === 'Buffer' ? '' : block.title) : block.title,
+        description: block.description || '',
         startStr: fmt24(block.startMin),
         endStr: fmt24(block.endMin)
       }
@@ -394,6 +407,7 @@ export default function TimelineView({
     const { mode, id, draft } = modal
     const startMin = toMin(draft.startStr)
     const endMin = toMin(draft.endStr)
+    const description = draft.description?.trim() || null
 
     if (endMin <= startMin) {
       showToast('End time must be after start')
@@ -412,6 +426,7 @@ export default function TimelineView({
         id: tempId,
         type: draft.type,
         title,
+        description,
         startMin,
         endMin,
         completed: false,
@@ -424,6 +439,7 @@ export default function TimelineView({
       try {
         const saved = await createItem({
           title,
+          description,
           start_time: startIso,
           end_time: endIso,
           is_buffer: isBuffer,
@@ -445,6 +461,7 @@ export default function TimelineView({
           items: [{
             id,
             title: prev.title,
+            description: prev.description || null,
             is_buffer: prev.type === 'buffer',
             start_time: new Date(`${day}T${fmt24(prev.startMin)}:00`).toISOString(),
             end_time: new Date(`${day}T${fmt24(prev.endMin)}:00`).toISOString()
@@ -454,7 +471,7 @@ export default function TimelineView({
 
       setBlocks(prev =>
         prev
-          .map(b => (b.id === id ? { ...b, type: draft.type, title, startMin, endMin } : b))
+          .map(b => (b.id === id ? { ...b, type: draft.type, title, description, startMin, endMin } : b))
           .sort((a, b) => a.startMin - b.startMin)
       )
       setModal(null)
@@ -463,6 +480,7 @@ export default function TimelineView({
       try {
         await updateItem(id, {
           title,
+          description,
           start_time: startIso,
           end_time: endIso,
           is_buffer: isBuffer
@@ -473,9 +491,63 @@ export default function TimelineView({
     }
   }
 
+  // Convert buffer to task action
+  const handleConvertBuffer = async (id: string) => {
+    const target = blocks.find(b => b.id === id)
+    if (!target) return
+    const newTitle = target.title === 'Buffer' || !target.title.trim() ? 'Task' : target.title
+    setBlocks(prev => prev.map(b => b.id === id ? { ...b, type: 'task', title: newTitle } : b))
+    showToast('Converted to task')
+
+    try {
+      await updateItem(id, { is_buffer: false, title: newTitle })
+      await logUndo('update', { items: [{ id, is_buffer: true, title: target.title }] }, day)
+    } catch (err) {
+      console.error('Error converting buffer to task:', err)
+    }
+  }
+
+  // Update description from Detail Panel
+  const handleSaveDetailDesc = async (id: string, newDesc: string) => {
+    const target = blocks.find(b => b.id === id)
+    if (!target) return
+    const trimmed = newDesc.trim() || null
+    if (trimmed === (target.description || null)) return
+
+    const prevDesc = target.description || null
+    setBlocks(prev => prev.map(b => b.id === id ? { ...b, description: trimmed } : b))
+
+    try {
+      await updateItem(id, { description: trimmed })
+      await logUndo('update', { items: [{ id, description: prevDesc }] }, day)
+      showToast('Notes saved')
+    } catch (err) {
+      console.error('Error updating description:', err)
+    }
+  }
+
+  // Update title from Detail Panel
+  const handleSaveDetailTitle = async (id: string, newTitle: string) => {
+    const target = blocks.find(b => b.id === id)
+    if (!target) return
+    const trimmed = newTitle.trim() || (target.type === 'buffer' ? 'Buffer' : 'Untitled')
+    if (trimmed === target.title) return
+
+    const prevTitle = target.title
+    setBlocks(prev => prev.map(b => b.id === id ? { ...b, title: trimmed } : b))
+
+    try {
+      await updateItem(id, { title: trimmed })
+      await logUndo('update', { items: [{ id, title: prevTitle }] }, day)
+    } catch (err) {
+      console.error('Error updating title:', err)
+    }
+  }
+
   // Pointer Drag & Resize Handlers
   const startDrag = (mode: 'move' | 'resize', block: LocalBlock, e: React.PointerEvent) => {
     e.stopPropagation()
+    hasMovedRef.current = false
 
     dragRef.current = {
       mode,
@@ -488,6 +560,9 @@ export default function TimelineView({
     const onPointerMove = (ev: PointerEvent) => {
       const d = dragRef.current
       if (!d) return
+      if (Math.abs(ev.clientY - d.startY) > 3) {
+        hasMovedRef.current = true
+      }
       const deltaMin = Math.round((ev.clientY - d.startY) / pxPerMin / SNAP_MINUTES) * SNAP_MINUTES
 
       setBlocks(prev =>
@@ -522,6 +597,7 @@ export default function TimelineView({
         const delta = d.mode === 'move' ? moved.startMin - d.origStart : moved.endMin - d.origEnd
         if (delta === 0) return currentBlocks
 
+        const movedDur = d.origEnd - d.origStart
         const origStartIso = new Date(`${day}T${fmt24(d.origStart)}:00`).toISOString()
         const origEndIso = new Date(`${day}T${fmt24(d.origEnd)}:00`).toISOString()
 
@@ -530,39 +606,81 @@ export default function TimelineView({
         const endIso = new Date(`${day}T${fmt24(moved.endMin)}:00`).toISOString()
         updateItem(moved.id, { start_time: startIso, end_time: endIso }).catch(console.error)
 
-        // Check if pushing into next block
+        // Symmetric bidirectional cascade calculation
+        let pushChain: string[] = []
+        let pushDelta = delta
+        let fillChain: string[] = []
+        let fillDelta = 0
+
         const sorted = currentBlocks.filter(t => t.type === 'task').sort((a, b) => a.startMin - b.startMin)
         const idx = sorted.findIndex(t => t.id === d.id)
-        const chain: string[] = []
-        let prevEnd = moved.endMin
 
-        for (let k = idx + 1; k < sorted.length; k++) {
-          if (sorted[k].startMin < prevEnd) {
-            chain.push(sorted[k].id)
-            prevEnd = sorted[k].endMin + delta
-          } else break
+        if (delta > 0) {
+          // Dragged LATER (down)
+          // 1. Push chain: subsequent tasks that collide/overlap
+          let prevEnd = moved.endMin
+          for (let k = idx + 1; k < sorted.length; k++) {
+            if (sorted[k].startMin < prevEnd) {
+              pushChain.push(sorted[k].id)
+              prevEnd = sorted[k].endMin + delta
+            } else break
+          }
+
+          // 2. Fill gap chain: intermediate tasks between old position and new position
+          fillChain = currentBlocks
+            .filter(t => t.id !== moved.id && t.startMin >= d.origEnd && t.endMin <= moved.startMin)
+            .map(t => t.id)
+          fillDelta = -movedDur
+        } else if (delta < 0) {
+          // Dragged EARLIER (up)
+          // 1. Push chain: earlier tasks that collide/overlap
+          let nextStart = moved.startMin
+          for (let k = idx - 1; k >= 0; k--) {
+            if (sorted[k].endMin > nextStart) {
+              pushChain.push(sorted[k].id)
+              nextStart = sorted[k].startMin + delta
+            } else break
+          }
+          pushChain.reverse()
+
+          // 2. Fill gap chain: intermediate tasks between new position and old position
+          fillChain = currentBlocks
+            .filter(t => t.id !== moved.id && t.startMin >= moved.endMin && t.endMin <= d.origStart)
+            .map(t => t.id)
+          fillDelta = movedDur
         }
 
-        if (chain.length > 0) {
-          const cascadeSnapshot = [
-            { id: moved.id, start_time: origStartIso, end_time: origEndIso },
-            ...chain.map(cid => {
-              const cItem = currentBlocks.find(b => b.id === cid)!
-              return {
-                id: cid,
-                start_time: new Date(`${day}T${fmt24(cItem.startMin)}:00`).toISOString(),
-                end_time: new Date(`${day}T${fmt24(cItem.endMin)}:00`).toISOString()
-              }
-            })
-          ]
+        const allCandidateIds = Array.from(new Set([...pushChain, ...fillChain]))
+        const cascadeSnapshot = [
+          { id: moved.id, start_time: origStartIso, end_time: origEndIso },
+          ...allCandidateIds.map(cid => {
+            const cItem = currentBlocks.find(b => b.id === cid)!
+            return {
+              id: cid,
+              start_time: new Date(`${day}T${fmt24(cItem.startMin)}:00`).toISOString(),
+              end_time: new Date(`${day}T${fmt24(cItem.endMin)}:00`).toISOString()
+            }
+          })
+        ]
 
+        if (pushChain.length > 0 || fillChain.length > 0) {
           if (cascadeMode === 'never') {
-            showToast('Times now overlap')
+            if (pushChain.length > 0) showToast('Times now overlap')
             logUndo('update', { items: [{ id: moved.id, start_time: origStartIso, end_time: origEndIso }] }, day).catch(console.error)
           } else if (cascadeMode === 'always') {
-            applyCascade(chain, delta, currentBlocks, cascadeSnapshot)
+            const chosenChain = pushChain.length > 0 ? pushChain : fillChain
+            const chosenDelta = pushChain.length > 0 ? pushDelta : fillDelta
+            applyCascade(chosenChain, chosenDelta, currentBlocks, cascadeSnapshot)
           } else {
-            setCascadePrompt({ chain, delta, count: chain.length, snapshot: cascadeSnapshot })
+            setCascadePrompt({
+              direction: delta > 0 ? 'down' : 'up',
+              draggedId: moved.id,
+              pushChain,
+              pushDelta,
+              fillChain,
+              fillDelta,
+              snapshot: cascadeSnapshot
+            })
           }
         } else {
           // No cascade, single moved/resized item logged atomically
@@ -946,15 +1064,25 @@ export default function TimelineView({
             {/* Blocks spanning from gutter to device edge */}
             {blocks.map(b => {
               const top = (b.startMin - MIN_START) * pxPerMin
-              const height = Math.max(8, (b.endMin - b.startMin) * pxPerMin)
+              const durationMin = b.endMin - b.startMin
+              const naturalHeight = durationMin * pxPerMin
+              // Minimum block height floor of 32px
+              const height = Math.max(32, naturalHeight)
+              const isSmall = durationMin < 20 || height < 40
               const timeLabel = `${fmt24(b.startMin)}–${fmt24(b.endMin)}`
 
               if (b.type === 'buffer') {
                 return (
                   <div
                     key={b.id}
-                    className="hatch"
-                    onClick={() => setSelectedBlockId(selectedBlockId === b.id ? null : b.id)}
+                    className="hatch group"
+                    onClick={() => {
+                      if (hasMovedRef.current) {
+                        hasMovedRef.current = false
+                        return
+                      }
+                      setDetailBlock(b)
+                    }}
                     style={{
                       position: 'absolute',
                       left: `${gutterWidth}px`,
@@ -965,152 +1093,36 @@ export default function TimelineView({
                       border: '1px solid oklch(0.28 0.006 90)',
                       display: 'flex',
                       alignItems: 'center',
-                      justifyContent: 'center',
                       overflow: 'hidden',
-                      cursor: 'pointer'
+                      cursor: 'pointer',
+                      opacity: b.completed ? 0.5 : 1,
+                      zIndex: draggingId === b.id ? 20 : 3
                     }}
                   >
-                    {height > 24 && (
-                      <span
-                        style={{
-                          fontFamily: "'JetBrains Mono', monospace",
-                          fontSize: '10.5px',
-                          color: 'oklch(0.6 0.006 90)',
-                          letterSpacing: '0.03em'
-                        }}
+                    <div className="flex items-center gap-2 w-full h-full px-2.5 overflow-hidden">
+                      {/* Grip handle */}
+                      <div
+                        onPointerDown={e => startDrag('move', b, e)}
+                        className="cursor-grab flex-shrink-0 opacity-40 group-hover:opacity-100 transition-opacity"
+                        title="Drag to move"
                       >
-                        buffer · {timeLabel}
-                      </span>
-                    )}
-
-                    {selectedBlockId === b.id && (
-                      <div style={{ position: 'absolute', right: '8px', top: '6px', display: 'flex', gap: '5px' }}>
-                        <button
-                          onClick={e => {
-                            e.stopPropagation()
-                            openEdit(b)
-                          }}
-                          style={{
-                            fontFamily: "'Work Sans', sans-serif",
-                            fontSize: '10.5px',
-                            fontWeight: 600,
-                            border: '1px solid oklch(0.34 0.006 90)',
-                            background: 'oklch(0.24 0.006 90)',
-                            color: 'oklch(0.78 0.006 90)',
-                            borderRadius: '6px',
-                            padding: '3px 7px',
-                            cursor: 'pointer'
-                          }}
-                        >
-                          Edit
-                        </button>
-                        <button
-                          onClick={e => {
-                            e.stopPropagation()
-                            handleDeleteBlock(b.id)
-                          }}
-                          style={{
-                            fontFamily: "'Work Sans', sans-serif",
-                            fontSize: '12px',
-                            fontWeight: 600,
-                            border: '1px solid oklch(0.34 0.006 90)',
-                            background: 'oklch(0.24 0.006 90)',
-                            color: 'oklch(0.78 0.006 90)',
-                            borderRadius: '6px',
-                            width: '20px',
-                            height: '20px',
-                            cursor: 'pointer',
-                            lineHeight: 1
-                          }}
-                        >
-                          ×
-                        </button>
+                        <span className="text-[10px] text-[oklch(0.55_0.006_90)] font-mono">⋮⋮</span>
                       </div>
-                    )}
-                  </div>
-                )
-              }
 
-              // Task Block
-              const dragging = draggingId === b.id
-              const conflict = conflictIds.has(b.id)
-              const selected = selectedBlockId === b.id
-              const baseBorder = conflict ? 'oklch(0.62 0.2 25)' : 'oklch(0.3 0.006 90)'
-
-              return (
-                <div
-                  key={b.id}
-                  onClick={() => setSelectedBlockId(selected ? null : b.id)}
-                  style={{
-                    position: 'absolute',
-                    left: `${gutterWidth}px`,
-                    right: `${blockRight}px`,
-                    top: `${top}px`,
-                    height: `${height}px`,
-                    borderRadius: '11px',
-                    background: dragging ? 'oklch(0.27 0.006 90)' : 'oklch(0.2 0.006 90)',
-                    border: `1.5px solid ${baseBorder}`,
-                    cursor: 'default',
-                    transition: dragging ? 'none' : 'background 0.15s',
-                    boxShadow: dragging ? '0 18px 30px -10px rgba(0,0,0,0.55)' : 'none',
-                    opacity: dragging ? 0.88 : b.completed ? 0.55 : 1,
-                    zIndex: dragging ? 20 : selected ? 12 : 3
-                  }}
-                >
-                  {/* Grip Handle */}
-                  <div
-                    onPointerDown={e => startDrag('move', b, e)}
-                    style={{
-                      position: 'absolute',
-                      left: '6px',
-                      top: 0,
-                      bottom: 0,
-                      width: '16px',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: '3px',
-                      cursor: 'grab',
-                      touchAction: 'none'
-                    }}
-                    title="Drag to move"
-                  >
-                    <div style={{ width: '10px', height: '2px', borderRadius: '1px', background: 'oklch(0.42 0.006 90)' }} />
-                    <div style={{ width: '10px', height: '2px', borderRadius: '1px', background: 'oklch(0.42 0.006 90)' }} />
-                    <div style={{ width: '10px', height: '2px', borderRadius: '1px', background: 'oklch(0.42 0.006 90)' }} />
-                  </div>
-
-                  {/* Block Content */}
-                  <div
-                    style={{
-                      position: 'absolute',
-                      left: '26px',
-                      right: '8px',
-                      top: 0,
-                      bottom: 0,
-                      display: 'flex',
-                      flexDirection: 'column',
-                      justifyContent: 'center',
-                      gap: '2px',
-                      padding: '4px 0',
-                      overflow: 'hidden'
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      {/* Buffer Checkbox */}
                       <button
                         onClick={e => {
                           e.stopPropagation()
                           toggleComplete(b.id)
                         }}
                         style={{
-                          width: '18px',
-                          height: '18px',
-                          borderRadius: '6px',
+                          width: '16px',
+                          height: '16px',
+                          borderRadius: '5px',
                           border: `1.5px solid ${b.completed ? accent : 'oklch(0.45 0.006 90)'}`,
                           background: b.completed ? accent : 'transparent',
                           color: accentText,
-                          fontSize: '11px',
+                          fontSize: '10px',
                           fontWeight: 700,
                           display: 'flex',
                           alignItems: 'center',
@@ -1119,126 +1131,222 @@ export default function TimelineView({
                           padding: 0,
                           flexShrink: 0
                         }}
+                        title={b.completed ? 'Mark pending' : 'Mark completed'}
                       >
                         {b.completed ? '✓' : ''}
                       </button>
+
+                      {/* Buffer title & time */}
                       <span
+                        className="font-medium text-xs truncate flex-1 min-w-0"
                         style={{
-                          fontFamily: "'Work Sans', sans-serif",
-                          fontSize: isMobile ? '13px' : '14px',
-                          fontWeight: 500,
-                          color: b.completed ? 'oklch(0.5 0.006 90)' : 'oklch(0.94 0.004 90)',
-                          textDecoration: b.completed ? 'line-through' : 'none',
-                          whiteSpace: 'nowrap',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis'
+                          color: b.completed ? 'oklch(0.48 0.006 90)' : 'oklch(0.8 0.006 90)',
+                          textDecoration: b.completed ? 'line-through' : 'none'
                         }}
                       >
                         {b.title}
                       </span>
+
+                      <span
+                        style={{ fontFamily: "'JetBrains Mono', monospace" }}
+                        className="text-[10px] text-[oklch(0.58 0.006 90)] tracking-wide flex-shrink-0 whitespace-nowrap font-medium"
+                      >
+                        buffer · {timeLabel}
+                      </span>
                     </div>
-                    <span
-                      style={{
-                        fontFamily: "'JetBrains Mono', monospace",
-                        fontSize: '10.5px',
-                        letterSpacing: '0.02em',
-                        color: 'oklch(0.56 0.006 90)',
-                        paddingLeft: '26px'
-                      }}
-                    >
-                      {timeLabel}
-                    </span>
-                  </div>
 
-                  {/* Conflict dot */}
-                  {conflict && (
+                    {/* Resize Handle */}
                     <div
-                      style={{
-                        position: 'absolute',
-                        right: '8px',
-                        top: '6px',
-                        width: '8px',
-                        height: '8px',
-                        borderRadius: '50%',
-                        background: 'oklch(0.62 0.2 25)',
-                        boxShadow: '0 0 0 3px oklch(0.62 0.2 25 / 0.22)'
-                      }}
-                      title="Conflict overlap detected"
-                    />
-                  )}
-
-                  {/* Actions (visible if selected or on hover) */}
-                  <div
-                    style={{
-                      position: 'absolute',
-                      right: '8px',
-                      top: '6px',
-                      display: 'flex',
-                      gap: '5px',
-                      opacity: selected ? 1 : 0,
-                      transition: 'opacity 0.12s'
-                    }}
-                    className="group-hover:opacity-100"
-                  >
-                    <button
-                      onClick={e => {
-                        e.stopPropagation()
-                        openEdit(b)
-                      }}
-                      style={{
-                        fontFamily: "'Work Sans', sans-serif",
-                        fontSize: '10.5px',
-                        fontWeight: 600,
-                        border: '1px solid oklch(0.34 0.006 90)',
-                        background: 'oklch(0.24 0.006 90)',
-                        color: 'oklch(0.78 0.006 90)',
-                        borderRadius: '6px',
-                        padding: '3px 7px',
-                        cursor: 'pointer'
-                      }}
+                      onPointerDown={e => startDrag('resize', b, e)}
+                      className="absolute left-1/2 -translate-x-1/2 bottom-0 w-10 h-2 cursor-ns-resize opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center z-10"
+                      title="Drag to resize"
                     >
-                      Edit
-                    </button>
-                    <button
-                      onClick={e => {
-                        e.stopPropagation()
-                        handleDeleteBlock(b.id)
-                      }}
-                      style={{
-                        fontFamily: "'Work Sans', sans-serif",
-                        fontSize: '12px',
-                        fontWeight: 600,
-                        border: '1px solid oklch(0.34 0.006 90)',
-                        background: 'oklch(0.24 0.006 90)',
-                        color: 'oklch(0.78 0.006 90)',
-                        borderRadius: '6px',
-                        width: '20px',
-                        height: '20px',
-                        cursor: 'pointer',
-                        lineHeight: 1
-                      }}
-                    >
-                      ×
-                    </button>
+                      <div className="w-5 h-0.5 rounded-full bg-[oklch(0.5_0.006_90)]" />
+                    </div>
                   </div>
+                )
+              }
+
+              // Task Block
+              const dragging = draggingId === b.id
+              const conflict = conflictIds.has(b.id)
+              const baseBorder = conflict ? 'oklch(0.62 0.2 25)' : 'oklch(0.3 0.006 90)'
+
+              return (
+                <div
+                  key={b.id}
+                  className="group"
+                  onClick={() => {
+                    if (hasMovedRef.current) {
+                      hasMovedRef.current = false
+                      return
+                    }
+                    setDetailBlock(b)
+                  }}
+                  style={{
+                    position: 'absolute',
+                    left: `${gutterWidth}px`,
+                    right: `${blockRight}px`,
+                    top: `${top}px`,
+                    height: `${height}px`,
+                    borderRadius: '10px',
+                    background: dragging ? 'oklch(0.27 0.006 90)' : 'oklch(0.2 0.006 90)',
+                    border: `1.5px solid ${baseBorder}`,
+                    cursor: 'pointer',
+                    transition: dragging ? 'none' : 'background 0.15s',
+                    boxShadow: dragging ? '0 18px 30px -10px rgba(0,0,0,0.55)' : 'none',
+                    opacity: dragging ? 0.88 : b.completed ? 0.55 : 1,
+                    zIndex: dragging ? 20 : 3
+                  }}
+                >
+                  {isSmall ? (
+                    /* Compact Single-Line Layout for short duration tasks */
+                    <div className="flex items-center gap-2 w-full h-full px-2.5 overflow-hidden">
+                      {/* Grip Handle */}
+                      <div
+                        onPointerDown={e => startDrag('move', b, e)}
+                        className="cursor-grab flex-shrink-0 opacity-40 group-hover:opacity-100 transition-opacity"
+                        title="Drag to move"
+                      >
+                        <span className="text-[10px] text-[oklch(0.55_0.006_90)] font-mono">⋮⋮</span>
+                      </div>
+
+                      {/* Checkbox */}
+                      <button
+                        onClick={e => {
+                          e.stopPropagation()
+                          toggleComplete(b.id)
+                        }}
+                        style={{
+                          width: '16px',
+                          height: '16px',
+                          borderRadius: '5px',
+                          border: `1.5px solid ${b.completed ? accent : 'oklch(0.45 0.006 90)'}`,
+                          background: b.completed ? accent : 'transparent',
+                          color: accentText,
+                          fontSize: '10px',
+                          fontWeight: 700,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          cursor: 'pointer',
+                          padding: 0,
+                          flexShrink: 0
+                        }}
+                        title={b.completed ? 'Mark pending' : 'Mark completed'}
+                      >
+                        {b.completed ? '✓' : ''}
+                      </button>
+
+                      {/* Title */}
+                      <span
+                        className="font-medium text-xs truncate flex-1 min-w-0"
+                        style={{
+                          color: b.completed ? 'oklch(0.5 0.006 90)' : 'oklch(0.94 0.004 90)',
+                          textDecoration: b.completed ? 'line-through' : 'none'
+                        }}
+                      >
+                        {b.title}
+                      </span>
+
+                      {/* Time Range in JetBrains Mono */}
+                      <span
+                        style={{ fontFamily: "'JetBrains Mono', monospace" }}
+                        className="text-[10px] text-[oklch(0.6_0.006_90)] flex-shrink-0 whitespace-nowrap font-medium"
+                      >
+                        {timeLabel}
+                      </span>
+
+                      {/* Conflict dot */}
+                      {conflict && (
+                        <div
+                          className="w-2 h-2 rounded-full bg-[oklch(0.62_0.2_25)] shadow-[0_0_0_2px_oklch(0.62_0.2_25/0.25)] flex-shrink-0"
+                          title="Conflict overlap detected"
+                        />
+                      )}
+                    </div>
+                  ) : (
+                    /* Full Card Layout for standard duration blocks */
+                    <div className="flex flex-col justify-center h-full px-3 py-1 gap-1 overflow-hidden">
+                      <div className="flex items-center gap-2">
+                        {/* Grip Handle */}
+                        <div
+                          onPointerDown={e => startDrag('move', b, e)}
+                          className="cursor-grab flex-shrink-0 opacity-40 group-hover:opacity-100 transition-opacity"
+                          title="Drag to move"
+                        >
+                          <span className="text-[11px] text-[oklch(0.55_0.006_90)] font-mono">⋮⋮</span>
+                        </div>
+
+                        {/* Checkbox */}
+                        <button
+                          onClick={e => {
+                            e.stopPropagation()
+                            toggleComplete(b.id)
+                          }}
+                          style={{
+                            width: '18px',
+                            height: '18px',
+                            borderRadius: '6px',
+                            border: `1.5px solid ${b.completed ? accent : 'oklch(0.45 0.006 90)'}`,
+                            background: b.completed ? accent : 'transparent',
+                            color: accentText,
+                            fontSize: '11px',
+                            fontWeight: 700,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            cursor: 'pointer',
+                            padding: 0,
+                            flexShrink: 0
+                          }}
+                          title={b.completed ? 'Mark pending' : 'Mark completed'}
+                        >
+                          {b.completed ? '✓' : ''}
+                        </button>
+
+                        <span
+                          className="font-medium text-sm truncate flex-1 min-w-0"
+                          style={{
+                            color: b.completed ? 'oklch(0.5 0.006 90)' : 'oklch(0.94 0.004 90)',
+                            textDecoration: b.completed ? 'line-through' : 'none'
+                          }}
+                        >
+                          {b.title}
+                        </span>
+
+                        {conflict && (
+                          <div
+                            className="w-2 h-2 rounded-full bg-[oklch(0.62_0.2_25)] shadow-[0_0_0_2px_oklch(0.62_0.2_25/0.25)] flex-shrink-0"
+                            title="Conflict overlap detected"
+                          />
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-2 pl-6">
+                        <span
+                          style={{ fontFamily: "'JetBrains Mono', monospace" }}
+                          className="text-[10.5px] text-[oklch(0.56_0.006_90)] tracking-wide flex-shrink-0"
+                        >
+                          {timeLabel}
+                        </span>
+                        {b.description && (
+                          <span className="text-[11px] text-[oklch(0.52_0.006_90)] truncate">
+                            · {b.description}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  )}
 
                   {/* Resize Handle at Bottom */}
                   <div
                     onPointerDown={e => startDrag('resize', b, e)}
-                    style={{
-                      position: 'absolute',
-                      left: '50%',
-                      bottom: '2px',
-                      transform: 'translateX(-50%)',
-                      width: '30px',
-                      height: '4px',
-                      borderRadius: '2px',
-                      background: 'oklch(0.4 0.006 90)',
-                      cursor: 'ns-resize',
-                      touchAction: 'none'
-                    }}
+                    className="absolute left-1/2 -translate-x-1/2 bottom-0 w-10 h-2 cursor-ns-resize opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center z-10"
                     title="Drag to resize"
-                  />
+                  >
+                    <div className="w-5 h-0.5 rounded-full bg-[oklch(0.5_0.006_90)]" />
+                  </div>
                 </div>
               )
             })}
@@ -1360,7 +1468,19 @@ export default function TimelineView({
               value={modal.draft.title}
               onChange={e => setModal({ ...modal, draft: { ...modal.draft, title: e.target.value } })}
               placeholder={modal.draft.type === 'buffer' ? 'e.g. Transition' : 'e.g. Deep work block'}
-              className="w-full text-sm bg-[oklch(0.21_0.006_90)] border border-[oklch(0.32_0.006_90)] rounded-xl p-3 text-[oklch(0.92_0.004_90)] mb-4 outline-none focus:border-[#d9a441] transition-colors"
+              className="w-full text-sm bg-[oklch(0.21_0.006_90)] border border-[oklch(0.32_0.006_90)] rounded-xl p-3 text-[oklch(0.92_0.004_90)] mb-3 outline-none focus:border-[#d9a441] transition-colors"
+            />
+
+            {/* Description field */}
+            <label className="block text-xs font-medium text-[oklch(0.6_0.006_90)] mb-1.5">
+              Description / Notes (optional)
+            </label>
+            <textarea
+              value={modal.draft.description || ''}
+              onChange={e => setModal({ ...modal, draft: { ...modal.draft, description: e.target.value } })}
+              placeholder="Add details, notes, or links..."
+              rows={2}
+              className="w-full text-sm bg-[oklch(0.21_0.006_90)] border border-[oklch(0.32_0.006_90)] rounded-xl p-3 text-[oklch(0.92_0.004_90)] mb-4 outline-none focus:border-[#d9a441] transition-colors resize-none placeholder:text-[oklch(0.5_0.006_90)]"
             />
 
             {/* Time inputs */}
@@ -1422,7 +1542,178 @@ export default function TimelineView({
       )}
 
       {/* =========================================================================
-          5. PANELS: SETTINGS & DAY REVIEW (RESPONSIVE: SHEET ON MOBILE, DRAWER ON DESKTOP)
+          5. BLOCK DETAIL PANEL (RESPONSIVE: BOTTOM SHEET ON MOBILE, DRAWER ON DESKTOP)
+      ========================================================================== */}
+      {detailBlock && (
+        <div
+          onClick={() => setDetailBlock(null)}
+          className="fixed inset-0 bg-black/50 z-50 flex items-end md:items-stretch justify-end animate-fadeIn"
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            className="w-full md:w-[400px] max-h-[90dvh] md:max-h-none md:h-full overflow-y-auto bg-[oklch(0.18_0.006_90)] border-t md:border-t-0 md:border-l border-[oklch(0.28_0.006_90)] rounded-t-3xl md:rounded-none p-6 pb-[calc(24px+env(safe-area-inset-bottom,0px))] shadow-2xl animate-sheetUp md:animate-none flex flex-col gap-5"
+          >
+            {/* Top Bar: Badge & Close */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span
+                  className="text-xs font-semibold px-2.5 py-1 rounded-lg border uppercase tracking-wider"
+                  style={{
+                    backgroundColor: detailBlock.type === 'buffer' ? 'oklch(0.24 0.04 70)' : 'oklch(0.24 0.04 220)',
+                    borderColor: detailBlock.type === 'buffer' ? 'oklch(0.36 0.06 70)' : 'oklch(0.36 0.06 220)',
+                    color: detailBlock.type === 'buffer' ? '#e5c07b' : '#61afef'
+                  }}
+                >
+                  {detailBlock.type === 'buffer' ? 'Buffer' : 'Task'}
+                </span>
+                <span className="text-xs font-mono text-[oklch(0.6_0.006_90)]">
+                  {detailBlock.endMin - detailBlock.startMin} min
+                </span>
+              </div>
+              <button
+                onClick={() => setDetailBlock(null)}
+                className="w-7 h-7 rounded-lg border border-[oklch(0.3_0.006_90)] bg-[oklch(0.22_0.006_90)] text-[oklch(0.7_0.006_90)] cursor-pointer text-base flex items-center justify-center hover:bg-[oklch(0.26_0.006_90)] transition-colors"
+              >
+                ×
+              </button>
+            </div>
+
+            {/* Editable Title */}
+            <div>
+              <label className="block text-[11px] font-medium text-[oklch(0.55_0.006_90)] uppercase tracking-wider mb-1.5">
+                Title
+              </label>
+              <input
+                type="text"
+                defaultValue={detailBlock.title}
+                key={detailBlock.id + '-title'}
+                onBlur={e => handleSaveDetailTitle(detailBlock.id, e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') {
+                    e.currentTarget.blur()
+                  }
+                }}
+                className="w-full text-lg font-semibold bg-[oklch(0.21_0.006_90)] border border-[oklch(0.3_0.006_90)] rounded-xl p-3 text-[oklch(0.95_0.004_90)] outline-none focus:border-[#d9a441] transition-colors"
+                placeholder={detailBlock.type === 'buffer' ? 'Buffer label' : 'Task title'}
+              />
+            </div>
+
+            {/* Time & Schedule Info */}
+            <div className="bg-[oklch(0.21_0.006_90)] border border-[oklch(0.28_0.006_90)] rounded-xl p-3.5 flex items-center justify-between">
+              <div>
+                <span className="block text-[11px] font-medium text-[oklch(0.55_0.006_90)] uppercase tracking-wider mb-1">
+                  Scheduled Time
+                </span>
+                <span
+                  style={{ fontFamily: "'JetBrains Mono', monospace" }}
+                  className="text-sm font-semibold text-[oklch(0.92_0.004_90)]"
+                >
+                  {fmt24(detailBlock.startMin)} – {fmt24(detailBlock.endMin)}
+                </span>
+              </div>
+              <button
+                onClick={() => {
+                  openEdit(detailBlock)
+                  setDetailBlock(null)
+                }}
+                className="text-xs font-semibold border border-[oklch(0.35_0.006_90)] bg-[oklch(0.24_0.006_90)] text-[oklch(0.85_0.006_90)] rounded-lg py-1.5 px-3 cursor-pointer hover:bg-[oklch(0.28_0.006_90)] transition-colors"
+              >
+                Change Time
+              </button>
+            </div>
+
+            {/* Completion Status Toggle (Both Tasks and Buffers!) */}
+            <div className="bg-[oklch(0.21_0.006_90)] border border-[oklch(0.28_0.006_90)] rounded-xl p-3.5 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => {
+                    toggleComplete(detailBlock.id)
+                    setDetailBlock(prev => prev ? { ...prev, completed: !prev.completed } : null)
+                  }}
+                  style={{
+                    borderColor: detailBlock.completed ? accent : 'oklch(0.45 0.006 90)',
+                    backgroundColor: detailBlock.completed ? accent : 'transparent',
+                    color: accentText
+                  }}
+                  className="w-5 h-5 rounded-md border flex items-center justify-center cursor-pointer p-0 text-xs font-bold transition-colors"
+                >
+                  {detailBlock.completed ? '✓' : ''}
+                </button>
+                <div>
+                  <span className="text-sm font-medium text-[oklch(0.92_0.004_90)] block">
+                    {detailBlock.completed ? 'Completed' : 'Mark as complete'}
+                  </span>
+                  {detailBlock.completed && detailBlock.completedAt && (
+                    <span className="text-[11px] text-[oklch(0.55_0.006_90)] block">
+                      Finished at {format(parseISO(detailBlock.completedAt), 'hh:mm a')}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Buffer Convert Action (if buffer) */}
+            {detailBlock.type === 'buffer' && (
+              <div className="bg-[oklch(0.21_0.006_90)] border border-[oklch(0.28_0.006_90)] rounded-xl p-3.5 flex flex-col gap-2">
+                <div className="text-xs text-[oklch(0.7_0.006_90)]">
+                  Need to turn this flexible buffer into an active task block?
+                </div>
+                <button
+                  onClick={() => {
+                    handleConvertBuffer(detailBlock.id)
+                    setDetailBlock(prev => prev ? { ...prev, type: 'task', title: prev.title === 'Buffer' ? 'Task' : prev.title } : null)
+                  }}
+                  style={{ backgroundColor: accent, color: accentText }}
+                  className="w-full text-xs font-bold py-2.5 px-3 rounded-xl border-none cursor-pointer flex items-center justify-center gap-2 shadow hover:brightness-105 transition-all"
+                >
+                  <span>⇄</span>
+                  <span>Convert to Task</span>
+                </button>
+              </div>
+            )}
+
+            {/* Description / Notes */}
+            <div className="flex-1 flex flex-col">
+              <label className="block text-[11px] font-medium text-[oklch(0.55_0.006_90)] uppercase tracking-wider mb-1.5">
+                Notes & Description
+              </label>
+              <textarea
+                defaultValue={detailBlock.description || ''}
+                key={detailBlock.id + '-desc'}
+                onBlur={e => handleSaveDetailDesc(detailBlock.id, e.target.value)}
+                placeholder="Add task notes, links, meeting agendas..."
+                rows={4}
+                className="w-full text-sm bg-[oklch(0.21_0.006_90)] border border-[oklch(0.3_0.006_90)] rounded-xl p-3 text-[oklch(0.92_0.004_90)] outline-none focus:border-[#d9a441] transition-colors resize-y leading-relaxed placeholder:text-[oklch(0.48_0.006_90)]"
+              />
+            </div>
+
+            {/* Consolidated Actions Footer: Edit & Delete */}
+            <div className="pt-3 border-t border-[oklch(0.26_0.006_90)] flex gap-2.5">
+              <button
+                onClick={() => {
+                  handleDeleteBlock(detailBlock.id)
+                  setDetailBlock(null)
+                }}
+                className="flex-1 text-sm font-semibold border border-[oklch(0.35_0.02_25)] bg-[oklch(0.22_0.02_25)] text-[oklch(0.75_0.14_25)] rounded-xl py-3 px-4 cursor-pointer hover:bg-[oklch(0.26_0.02_25)] transition-colors"
+              >
+                Delete Block
+              </button>
+              <button
+                onClick={() => {
+                  openEdit(detailBlock)
+                  setDetailBlock(null)
+                }}
+                className="flex-1 text-sm font-semibold border border-[oklch(0.32_0.006_90)] bg-[oklch(0.23_0.006_90)] text-[oklch(0.9_0.004_90)] rounded-xl py-3 px-4 cursor-pointer hover:bg-[oklch(0.27_0.006_90)] transition-colors"
+              >
+                Edit Details
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================================
+          6. PANELS: SETTINGS & DAY REVIEW (RESPONSIVE: SHEET ON MOBILE, DRAWER ON DESKTOP)
       ========================================================================== */}
       {panel && (
         <div
@@ -1532,14 +1823,52 @@ export default function TimelineView({
       )}
 
       {/* =========================================================================
-          6. CASCADE PROMPT POPOVER
+          7. SYMMETRIC BIDIRECTIONAL CASCADE PROMPT POPOVER
       ========================================================================== */}
       {cascadePrompt && (
-        <div className="fixed left-1/2 -translate-x-1/2 bottom-20 md:bottom-8 z-50 w-[min(340px,92%)] bg-[oklch(0.24_0.008_70)] border border-[oklch(0.4_0.03_70)] rounded-2xl p-4 shadow-2xl animate-fadeIn">
-          <div className="text-sm text-[oklch(0.94_0.006_90)] mb-3 leading-snug">
-            Shift {cascadePrompt.count} following item{cascadePrompt.count > 1 ? 's' : ''} by {Math.abs(cascadePrompt.delta)} min?
+        <div className="fixed left-1/2 -translate-x-1/2 bottom-20 md:bottom-8 z-50 w-[min(380px,94%)] bg-[oklch(0.23_0.01_70)] border border-[oklch(0.38_0.03_70)] rounded-2xl p-4 shadow-2xl animate-fadeIn text-left">
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-sm font-bold text-[oklch(0.96_0.004_90)]">
+              {cascadePrompt.direction === 'down' ? 'Moved Later' : 'Moved Earlier'}
+            </span>
+            <span className="font-mono text-xs text-[oklch(0.65_0.006_90)]">
+              {Math.abs(cascadePrompt.pushDelta)} min shift
+            </span>
           </div>
-          <div className="flex gap-2">
+          <div className="text-xs text-[oklch(0.72_0.006_90)] mb-3 leading-relaxed">
+            Choose how you'd like surrounding blocks to respond:
+          </div>
+
+          <div className="flex flex-col gap-2">
+            {cascadePrompt.pushChain.length > 0 && (
+              <button
+                onClick={() => applyCascade(cascadePrompt.pushChain, cascadePrompt.pushDelta, blocks, cascadePrompt.snapshot)}
+                style={{ backgroundColor: accent, color: accentText }}
+                className="w-full text-xs font-bold py-2.5 px-3.5 rounded-xl border-none cursor-pointer flex items-center justify-between shadow hover:brightness-105 active:scale-[0.98] transition-all"
+              >
+                <span>
+                  {cascadePrompt.direction === 'down' ? 'Push following items down' : 'Push preceding items up'}
+                </span>
+                <span className="font-mono text-[11px] opacity-80">
+                  {cascadePrompt.pushChain.length} {cascadePrompt.pushChain.length === 1 ? 'block' : 'blocks'}
+                </span>
+              </button>
+            )}
+
+            {cascadePrompt.fillChain.length > 0 && (
+              <button
+                onClick={() => applyCascade(cascadePrompt.fillChain, cascadePrompt.fillDelta, blocks, cascadePrompt.snapshot)}
+                className="w-full text-xs font-semibold py-2.5 px-3.5 rounded-xl border border-[oklch(0.38_0.01_90)] bg-[oklch(0.28_0.008_90)] text-[oklch(0.92_0.004_90)] cursor-pointer flex items-center justify-between hover:bg-[oklch(0.32_0.008_90)] active:scale-[0.98] transition-all"
+              >
+                <span>
+                  {cascadePrompt.direction === 'down' ? 'Fill gap: shift middle items up' : 'Fill gap: shift middle items down'}
+                </span>
+                <span className="font-mono text-[11px] opacity-80">
+                  {cascadePrompt.fillChain.length} {cascadePrompt.fillChain.length === 1 ? 'block' : 'blocks'}
+                </span>
+              </button>
+            )}
+
             <button
               onClick={() => {
                 if (cascadePrompt.snapshot && cascadePrompt.snapshot[0]) {
@@ -1547,16 +1876,9 @@ export default function TimelineView({
                 }
                 setCascadePrompt(null)
               }}
-              className="flex-1 text-xs font-semibold border border-[oklch(0.4_0.01_90)] bg-transparent text-[oklch(0.85_0.006_90)] rounded-lg py-2 px-2.5 cursor-pointer hover:bg-[oklch(0.28_0.01_90)] transition-colors"
+              className="w-full text-xs font-medium py-2 px-3 rounded-xl border border-transparent text-[oklch(0.65_0.006_90)] hover:text-[oklch(0.85_0.006_90)] hover:bg-[oklch(0.26_0.008_90)] transition-colors cursor-pointer text-center"
             >
-              Don't cascade
-            </button>
-            <button
-              onClick={() => applyCascade(cascadePrompt.chain, cascadePrompt.delta, blocks, cascadePrompt.snapshot)}
-              style={{ backgroundColor: accent, color: accentText }}
-              className="flex-1 text-xs font-bold border-none rounded-lg py-2 px-2.5 cursor-pointer shadow-md hover:brightness-105 active:scale-95 transition-all"
-            >
-              Cascade
+              Don't cascade (leave surrounding items)
             </button>
           </div>
         </div>
