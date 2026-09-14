@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { format, differenceInMinutes, startOfDay, parseISO, isSameDay, addDays } from 'date-fns'
 import { PlannerItem } from '@/types'
@@ -46,11 +46,10 @@ export default function TimelineView({
 }: TimelineViewProps) {
   const router = useRouter()
 
-  // Viewport mode: 'desktop' or 'mobile'
-  const [viewportMode, setViewportMode] = useState<'desktop' | 'mobile'>('desktop')
-  const [isScreenMobile, setIsScreenMobile] = useState(false)
+  // Dynamic viewport detection: purely automatic by viewport width
+  const [isMobile, setIsMobile] = useState(false)
 
-  // Local state
+  // Local state for planner blocks
   const [blocks, setBlocks] = useState<LocalBlock[]>([])
   const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null)
   const [draggingId, setDraggingId] = useState<string | null>(null)
@@ -98,19 +97,18 @@ export default function TimelineView({
 
   const trackRef = useRef<HTMLDivElement>(null)
 
-  // Accent color
+  // Accent color tokens
   const accent = '#d9a441'
   const accentText = 'oklch(0.18 0.01 90)'
 
-  // Check screen width for auto mobile adaptation
+  // Check screen width for automatic responsive behavior (no user switch)
   useEffect(() => {
-    const checkWidth = () => {
-      const isMobileWidth = window.innerWidth < 768
-      setIsScreenMobile(isMobileWidth)
+    const handleResize = () => {
+      setIsMobile(window.innerWidth < 768)
     }
-    checkWidth()
-    window.addEventListener('resize', checkWidth)
-    return () => window.removeEventListener('resize', checkWidth)
+    handleResize()
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
   }, [])
 
   // Map initialItems from Supabase into LocalBlocks
@@ -192,17 +190,17 @@ export default function TimelineView({
     }
   }
 
-  // Pixels per minute based on mode
-  const activeIsMobile = isScreenMobile || viewportMode === 'mobile'
-  const pxPerMin = (activeIsMobile ? 72 : 96) / 60
-  const gutterWidth = activeIsMobile ? 52 : 64
+  // Pixels per minute based on screen size (1.2px/min on mobile, 1.6px/min on desktop)
+  const pxPerMin = (isMobile ? 72 : 96) / 60
+  const gutterWidth = isMobile ? 54 : 68
+  const blockRight = isMobile ? 8 : 20
 
   // Date helpers
   const targetDate = parseISO(day)
   const isToday = isSameDay(targetDate, now)
   const nowMinutes = differenceInMinutes(now, startOfDay(now))
   const nowTop = (nowMinutes - MIN_START) * pxPerMin
-  const dateLabel = format(targetDate, 'EEE, MMM d')
+  const dateLabel = format(targetDate, isMobile ? 'EEE, MMM d' : 'EEEE, MMMM do')
 
   const changeDate = (delta: number) => {
     const next = addDays(targetDate, delta)
@@ -395,7 +393,6 @@ export default function TimelineView({
       setDraggingId(null)
       if (!d) return
 
-      // Find moved block in latest state
       setBlocks(currentBlocks => {
         const moved = currentBlocks.find(t => t.id === d.id)
         if (!moved) return currentBlocks
@@ -449,7 +446,6 @@ export default function TimelineView({
     setCascadePrompt(null)
     showToast(`Shifted ${chain.length} item${chain.length > 1 ? 's' : ''}`)
 
-    // Update in Supabase
     for (const id of chain) {
       const item = updated.find(t => t.id === id)
       if (item) {
@@ -556,1359 +552,886 @@ export default function TimelineView({
   })
 
   return (
-    <div className="w-full flex-1 flex flex-col items-center p-4 sm:p-7 pb-16 font-sans">
-      {/* Top Preview Switcher */}
-      <div className="w-full max-w-[1280px] flex justify-end mb-4">
-        <div className="flex items-center gap-2.5 bg-[oklch(0.19_0.006_90)] border border-[oklch(0.28_0.006_90)] rounded-xl p-1 shadow-md">
-          <span className="text-[11px] font-medium tracking-wide text-[oklch(0.55_0.006_90)] px-2">
-            View Mode
-          </span>
+    <div className="w-full h-full flex flex-col bg-[oklch(0.16_0.006_90)] text-[oklch(0.92_0.004_90)] overflow-hidden font-sans select-none">
+      {/* =========================================================================
+          1. HEADER (EDGE-TO-EDGE, RESPONSIVE)
+      ========================================================================== */}
+      {/* Mobile Header (< md) */}
+      <header className="flex md:hidden w-full items-center justify-between px-3 py-2.5 sm:px-4 border-b border-[oklch(0.24_0.006_90)] bg-[oklch(0.18_0.006_90)] shrink-0 z-30">
+        <span className="font-bold text-[16px] tracking-tight text-[oklch(0.94_0.004_90)]">
+          Daylog
+        </span>
+
+        <div className="flex items-center gap-1.5">
           <button
-            onClick={() => setViewportMode('desktop')}
-            className="border-0 cursor-pointer font-sans text-[13px] font-semibold py-1.5 px-3.5 rounded-lg transition-all"
-            style={{
-              backgroundColor: viewportMode === 'desktop' ? accent : 'transparent',
-              color: viewportMode === 'desktop' ? accentText : 'oklch(0.72 0.006 90)'
-            }}
+            onClick={() => changeDate(-1)}
+            className="w-7 h-7 rounded-lg border border-[oklch(0.3_0.006_90)] bg-[oklch(0.2_0.006_90)] text-[oklch(0.75_0.006_90)] text-sm flex items-center justify-center cursor-pointer"
           >
-            Desktop
+            ‹
           </button>
+          <div className="text-center min-w-[96px]">
+            <div className="font-semibold text-[13px] text-[oklch(0.92_0.004_90)]">{dateLabel}</div>
+            {isToday && (
+              <div className="font-mono text-[10px] text-[#d9a441] leading-none">
+                now {format(now, 'HH:mm')}
+              </div>
+            )}
+          </div>
           <button
-            onClick={() => setViewportMode('mobile')}
-            className="border-0 cursor-pointer font-sans text-[13px] font-semibold py-1.5 px-3.5 rounded-lg transition-all"
-            style={{
-              backgroundColor: viewportMode === 'mobile' ? accent : 'transparent',
-              color: viewportMode === 'mobile' ? accentText : 'oklch(0.72 0.006 90)'
-            }}
+            onClick={() => changeDate(1)}
+            className="w-7 h-7 rounded-lg border border-[oklch(0.3_0.006_90)] bg-[oklch(0.2_0.006_90)] text-[oklch(0.75_0.006_90)] text-sm flex items-center justify-center cursor-pointer"
           >
-            Mobile
+            ›
           </button>
         </div>
-      </div>
 
-      {/* Main Container: Dual Frame (Desktop wide box or Mobile phone frame) */}
-      <div
-        className="transition-all duration-300 relative flex flex-col bg-[oklch(0.16_0.006_90)] text-[oklch(0.92_0.004_90)] overflow-hidden"
-        style={
-          viewportMode === 'mobile'
-            ? {
-                width: '390px',
-                height: '844px',
-                borderRadius: '44px',
-                border: '1px solid oklch(0.3 0.006 90)',
-                boxShadow: '0 30px 80px -20px rgba(0,0,0,0.65)'
-              }
-            : {
-                width: '100%',
-                maxWidth: '1280px',
-                height: '820px',
-                borderRadius: '16px',
-                border: '1px solid oklch(0.26 0.006 90)',
-                boxShadow: '0 30px 80px -24px rgba(0,0,0,0.55)'
-              }
-        }
-      >
-        {/* HEADER */}
-        <header
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            padding: activeIsMobile ? '16px 16px 12px' : '20px 26px 16px',
-            borderBottom: '1px solid oklch(0.24 0.006 90)',
-            flexShrink: 0
-          }}
-        >
-          {/* Logo / Wordmark */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <span
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={() => setPanel('review')}
+            className="w-8 h-8 rounded-lg border border-[oklch(0.3_0.006_90)] bg-[oklch(0.2_0.006_90)] text-[oklch(0.75_0.006_90)] text-sm flex items-center justify-center cursor-pointer"
+            title="Day Review"
+          >
+            ☰
+          </button>
+          <button
+            onClick={() => setPanel('settings')}
+            className="w-8 h-8 rounded-lg border border-[oklch(0.3_0.006_90)] bg-[oklch(0.2_0.006_90)] text-[oklch(0.75_0.006_90)] text-sm flex items-center justify-center cursor-pointer"
+            title="Settings"
+          >
+            ⚙
+          </button>
+        </div>
+      </header>
+
+      {/* Desktop Header (>= md) */}
+      <header className="hidden md:flex w-full items-center justify-between px-8 py-4 border-b border-[oklch(0.24_0.006_90)] bg-[oklch(0.18_0.006_90)] shrink-0 z-30">
+        <div className="flex items-center gap-3">
+          <span className="font-bold text-xl tracking-tight text-[oklch(0.94_0.004_90)]">
+            Daylog
+          </span>
+        </div>
+
+        {/* Center: Date Navigation */}
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => changeDate(-1)}
+            className="w-8 h-8 rounded-lg border border-[oklch(0.3_0.006_90)] bg-[oklch(0.2_0.006_90)] text-[oklch(0.75_0.006_90)] text-base flex items-center justify-center hover:bg-[oklch(0.24_0.006_90)] cursor-pointer transition-colors"
+          >
+            ‹
+          </button>
+          <div className="text-center min-w-[170px]">
+            <div className="font-semibold text-[15px] text-[oklch(0.94_0.004_90)]">{dateLabel}</div>
+            <div className="font-mono text-[11px] text-[#d9a441] tracking-wide">
+              {isToday ? 'now ' + format(now, 'HH:mm') : ''}
+            </div>
+          </div>
+          <button
+            onClick={() => changeDate(1)}
+            className="w-8 h-8 rounded-lg border border-[oklch(0.3_0.006_90)] bg-[oklch(0.2_0.006_90)] text-[oklch(0.75_0.006_90)] text-base flex items-center justify-center hover:bg-[oklch(0.24_0.006_90)] cursor-pointer transition-colors"
+          >
+            ›
+          </button>
+        </div>
+
+        {/* Right: Actions */}
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleUndo}
+            title="Undo (Ctrl+Z)"
+            style={{
+              fontFamily: "'Work Sans', sans-serif",
+              fontWeight: 600,
+              fontSize: '13px',
+              border: '1px solid oklch(0.3 0.006 90)',
+              borderRadius: '9px',
+              padding: '8px 14px',
+              cursor: historyStack.length ? 'pointer' : 'default',
+              background: 'oklch(0.2 0.006 90)',
+              color: historyStack.length ? 'oklch(0.78 0.006 90)' : 'oklch(0.4 0.006 90)',
+              opacity: historyStack.length ? 1 : 0.5
+            }}
+          >
+            Undo
+          </button>
+
+          <button
+            onClick={openAdd}
+            style={{
+              fontFamily: "'Work Sans', sans-serif",
+              fontWeight: 600,
+              fontSize: '13px',
+              border: 'none',
+              borderRadius: '9px',
+              padding: '8px 16px',
+              cursor: 'pointer',
+              background: accent,
+              color: accentText
+            }}
+          >
+            + Add block
+          </button>
+
+          <button
+            onClick={() => setPanel('review')}
+            className="w-9 h-9 rounded-lg border border-[oklch(0.3_0.006_90)] bg-[oklch(0.2_0.006_90)] text-[oklch(0.75_0.006_90)] text-sm flex items-center justify-center hover:bg-[oklch(0.24_0.006_90)] cursor-pointer transition-colors"
+            title="Day Review"
+          >
+            ☰
+          </button>
+
+          <button
+            onClick={() => setPanel('settings')}
+            className="w-9 h-9 rounded-lg border border-[oklch(0.3_0.006_90)] bg-[oklch(0.2_0.006_90)] text-[oklch(0.75_0.006_90)] text-sm flex items-center justify-center hover:bg-[oklch(0.24_0.006_90)] cursor-pointer transition-colors"
+            title="Settings"
+          >
+            ⚙
+          </button>
+
+          <form action="/auth/signout" method="post" className="m-0">
+            <button
+              type="submit"
+              className="font-sans text-xs text-[oklch(0.58_0.006_90)] hover:text-[oklch(0.9_0.004_90)] bg-transparent border-none cursor-pointer py-1.5 px-2 transition-colors"
+            >
+              Sign out
+            </button>
+          </form>
+        </div>
+      </header>
+
+      {/* =========================================================================
+          2. TIMELINE VIEWPORT (FULL-BLEED EDGE-TO-EDGE)
+      ========================================================================== */}
+      <main className="flex-1 w-full overflow-y-auto relative min-h-0 bg-[oklch(0.16_0.006_90)]">
+        {/* Empty Day State */}
+        {blocks.length === 0 ? (
+          <div className="h-full min-h-[380px] w-full flex flex-col items-center justify-center gap-4 p-8 text-center">
+            <div className="hatch w-16 h-16 rounded-2xl border border-[oklch(0.3_0.006_90)] shadow-md" />
+            <div className="max-w-[280px]">
+              <div className="font-semibold text-lg text-[oklch(0.94_0.004_90)] mb-1.5">
+                This day is a blank page
+              </div>
+              <div className="text-sm text-[oklch(0.6_0.006_90)] leading-relaxed">
+                Nothing is scheduled yet. Lay down your first block whenever you're ready.
+              </div>
+            </div>
+            <button
+              onClick={openAdd}
               style={{
                 fontFamily: "'Work Sans', sans-serif",
-                fontWeight: 700,
-                fontSize: activeIsMobile ? '16px' : '18px',
-                letterSpacing: '-0.01em',
-                color: 'oklch(0.92 0.004 90)'
+                fontWeight: 600,
+                fontSize: '13.5px',
+                border: 'none',
+                borderRadius: '10px',
+                padding: '10px 22px',
+                cursor: 'pointer',
+                background: accent,
+                color: accentText
               }}
             >
-              Daylog
-            </span>
-          </div>
-
-          {/* Date Controls */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <button
-              onClick={() => changeDate(-1)}
-              style={{
-                width: '30px',
-                height: '30px',
-                borderRadius: '8px',
-                border: '1px solid oklch(0.3 0.006 90)',
-                background: 'oklch(0.2 0.006 90)',
-                color: 'oklch(0.72 0.006 90)',
-                fontSize: '15px',
-                cursor: 'pointer'
-              }}
-            >
-              ‹
-            </button>
-            <div style={{ textAlign: 'center', minWidth: '118px' }}>
-              <div
-                style={{
-                  fontFamily: "'Work Sans', sans-serif",
-                  fontWeight: 600,
-                  fontSize: activeIsMobile ? '13.5px' : '14.5px'
-                }}
-              >
-                {dateLabel}
-              </div>
-              <div
-                style={{
-                  fontFamily: "'JetBrains Mono', monospace",
-                  fontSize: '10.5px',
-                  color: isToday ? accent : 'oklch(0.58 0.006 90)',
-                  letterSpacing: '0.02em'
-                }}
-              >
-                {isToday ? 'now ' + format(now, 'HH:mm') : ''}
-              </div>
-            </div>
-            <button
-              onClick={() => changeDate(1)}
-              style={{
-                width: '30px',
-                height: '30px',
-                borderRadius: '8px',
-                border: '1px solid oklch(0.3 0.006 90)',
-                background: 'oklch(0.2 0.006 90)',
-                color: 'oklch(0.72 0.006 90)',
-                fontSize: '15px',
-                cursor: 'pointer'
-              }}
-            >
-              ›
+              Add the first block
             </button>
           </div>
-
-          {/* Action Buttons */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            {!activeIsMobile && (
-              <>
-                <button
-                  onClick={handleUndo}
-                  title="Undo (Ctrl+Z)"
-                  style={{
-                    fontFamily: "'Work Sans', sans-serif",
-                    fontWeight: 600,
-                    fontSize: '13px',
-                    border: '1px solid oklch(0.3 0.006 90)',
-                    borderRadius: '9px',
-                    padding: '8px 14px',
-                    cursor: historyStack.length ? 'pointer' : 'default',
-                    background: 'oklch(0.2 0.006 90)',
-                    color: historyStack.length ? 'oklch(0.78 0.006 90)' : 'oklch(0.4 0.006 90)',
-                    opacity: historyStack.length ? 1 : 0.5
-                  }}
-                >
-                  Undo
-                </button>
-                <button
-                  onClick={openAdd}
-                  style={{
-                    fontFamily: "'Work Sans', sans-serif",
-                    fontWeight: 600,
-                    fontSize: '13px',
-                    border: 'none',
-                    borderRadius: '9px',
-                    padding: '8px 16px',
-                    cursor: 'pointer',
-                    background: accent,
-                    color: accentText
-                  }}
-                >
-                  + Add block
-                </button>
-              </>
-            )}
-
-            <button
-              onClick={() => setPanel('review')}
-              style={{
-                width: '34px',
-                height: '34px',
-                borderRadius: '9px',
-                border: '1px solid oklch(0.3 0.006 90)',
-                background: 'oklch(0.2 0.006 90)',
-                color: 'oklch(0.72 0.006 90)',
-                fontSize: '14px',
-                cursor: 'pointer'
-              }}
-              title="Day Review"
-            >
-              ☰
-            </button>
-            <button
-              onClick={() => setPanel('settings')}
-              style={{
-                width: '34px',
-                height: '34px',
-                borderRadius: '9px',
-                border: '1px solid oklch(0.3 0.006 90)',
-                background: 'oklch(0.2 0.006 90)',
-                color: 'oklch(0.72 0.006 90)',
-                fontSize: '14px',
-                cursor: 'pointer'
-              }}
-              title="Settings"
-            >
-              ⚙
-            </button>
-
-            {!activeIsMobile && (
-              <form action="/auth/signout" method="post" style={{ margin: 0 }}>
-                <button
-                  type="submit"
-                  style={{
-                    fontFamily: "'Work Sans', sans-serif",
-                    fontSize: '12px',
-                    color: 'oklch(0.58 0.006 90)',
-                    background: 'none',
-                    border: 'none',
-                    cursor: 'pointer',
-                    padding: '6px 8px'
-                  }}
-                >
-                  Sign out
-                </button>
-              </form>
-            )}
-          </div>
-        </header>
-
-        {/* TIMELINE VIEWPORT */}
-        <div style={{ flex: 1, overflowY: 'auto', position: 'relative', minHeight: 0 }}>
-          {/* Empty Day State */}
-          {blocks.length === 0 ? (
-            <div
-              style={{
-                height: '100%',
-                minHeight: '420px',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '18px',
-                padding: '40px',
-                textAlign: 'center'
-              }}
-            >
-              <div
-                className="hatch"
-                style={{
-                  width: '64px',
-                  height: '64px',
-                  borderRadius: '16px',
-                  border: '1px solid oklch(0.3 0.006 90)'
-                }}
-              />
-              <div style={{ maxWidth: '280px' }}>
-                <div
-                  style={{
-                    fontFamily: "'Work Sans', sans-serif",
-                    fontWeight: 600,
-                    fontSize: '17px',
-                    marginBottom: '6px'
-                  }}
-                >
-                  This day is a blank page
-                </div>
-                <div
-                  style={{
-                    fontFamily: "'Work Sans', sans-serif",
-                    fontSize: '13.5px',
-                    color: 'oklch(0.6 0.006 90)',
-                    lineHeight: 1.5
-                  }}
-                >
-                  Nothing is scheduled yet. Lay down your first block whenever you're ready.
-                </div>
-              </div>
-              <button
-                onClick={openAdd}
-                style={{
-                  fontFamily: "'Work Sans', sans-serif",
-                  fontWeight: 600,
-                  fontSize: '13.5px',
-                  border: 'none',
-                  borderRadius: '10px',
-                  padding: '10px 20px',
-                  cursor: 'pointer',
-                  background: accent,
-                  color: accentText
-                }}
-              >
-                Add the first block
-              </button>
-            </div>
-          ) : (
-            /* Non-empty Day Timeline Track */
-            <div
-              ref={trackRef}
-              style={{
-                position: 'relative',
-                height: `${(MIN_END - MIN_START) * pxPerMin + 30}px`,
-                padding: `${activeIsMobile ? '16px 10px' : '20px 20px'} 20px`
-              }}
-            >
-              {/* Hour Grid Lines */}
-              {hourRows.map(row => (
-                <React.Fragment key={row.label}>
-                  <div
-                    style={{
-                      position: 'absolute',
-                      left: 0,
-                      right: 0,
-                      top: `${row.top}px`,
-                      height: '1px',
-                      background: 'oklch(0.24 0.006 90)'
-                    }}
-                  />
-                  <div
-                    style={{
-                      position: 'absolute',
-                      left: `${activeIsMobile ? 12 : 20}px`,
-                      top: `${row.labelTop}px`,
-                      fontFamily: "'JetBrains Mono', monospace",
-                      fontSize: '11px',
-                      color: 'oklch(0.5 0.006 90)',
-                      letterSpacing: '0.02em',
-                      userSelect: 'none'
-                    }}
-                  >
-                    {row.label}
-                  </div>
-                </React.Fragment>
-              ))}
-
-              {/* Current Time (Now) Line */}
-              {isToday && nowMinutes >= MIN_START && nowMinutes <= MIN_END && (
+        ) : (
+          /* Non-Empty Timeline Track */
+          <div
+            ref={trackRef}
+            className="w-full relative py-4"
+            style={{
+              height: `${(MIN_END - MIN_START) * pxPerMin + 40}px`
+            }}
+          >
+            {/* Hour Grid Lines across full width */}
+            {hourRows.map(row => (
+              <React.Fragment key={row.label}>
                 <div
                   style={{
                     position: 'absolute',
-                    left: `${gutterWidth}px`,
-                    right: '10px',
-                    top: `${nowTop}px`,
-                    height: '2px',
-                    background: accent,
-                    zIndex: 5,
-                    boxShadow: `0 0 8px ${accent}99`
+                    left: 0,
+                    right: 0,
+                    top: `${row.top}px`,
+                    height: '1px',
+                    background: 'oklch(0.24 0.006 90)'
+                  }}
+                />
+                <div
+                  style={{
+                    position: 'absolute',
+                    left: isMobile ? '8px' : '14px',
+                    top: `${row.labelTop}px`,
+                    fontFamily: "'JetBrains Mono', monospace",
+                    fontSize: isMobile ? '10.5px' : '11px',
+                    color: 'oklch(0.5 0.006 90)',
+                    letterSpacing: '0.02em',
+                    userSelect: 'none'
                   }}
                 >
-                  <div
-                    style={{
-                      position: 'absolute',
-                      left: '-5px',
-                      top: '-4px',
-                      width: '10px',
-                      height: '10px',
-                      borderRadius: '50%',
-                      background: accent
-                    }}
-                  />
+                  {row.label}
                 </div>
-              )}
+              </React.Fragment>
+            ))}
 
-              {/* Blocks */}
-              {blocks.map(b => {
-                const top = (b.startMin - MIN_START) * pxPerMin
-                const height = Math.max(8, (b.endMin - b.startMin) * pxPerMin)
-                const timeLabel = `${fmt24(b.startMin)}–${fmt24(b.endMin)}`
+            {/* Current Time (Now) Line */}
+            {isToday && nowMinutes >= MIN_START && nowMinutes <= MIN_END && (
+              <div
+                style={{
+                  position: 'absolute',
+                  left: `${gutterWidth}px`,
+                  right: `${blockRight}px`,
+                  top: `${nowTop}px`,
+                  height: '2px',
+                  background: accent,
+                  zIndex: 10,
+                  boxShadow: `0 0 8px ${accent}99`
+                }}
+              >
+                <div
+                  style={{
+                    position: 'absolute',
+                    left: '-5px',
+                    top: '-4px',
+                    width: '10px',
+                    height: '10px',
+                    borderRadius: '50%',
+                    background: accent
+                  }}
+                />
+              </div>
+            )}
 
-                if (b.type === 'buffer') {
-                  return (
-                    <div
-                      key={b.id}
-                      className="hatch"
-                      onClick={() => setSelectedBlockId(selectedBlockId === b.id ? null : b.id)}
-                      style={{
-                        position: 'absolute',
-                        left: `${gutterWidth}px`,
-                        right: '10px',
-                        top: `${top}px`,
-                        height: `${height}px`,
-                        borderRadius: '9px',
-                        border: '1px solid oklch(0.28 0.006 90)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        overflow: 'hidden',
-                        cursor: 'pointer'
-                      }}
-                    >
-                      {height > 26 && (
-                        <span
-                          style={{
-                            fontFamily: "'JetBrains Mono', monospace",
-                            fontSize: '10.5px',
-                            color: 'oklch(0.6 0.006 90)',
-                            letterSpacing: '0.03em'
-                          }}
-                        >
-                          buffer · {timeLabel}
-                        </span>
-                      )}
+            {/* Blocks spanning from gutter to device edge */}
+            {blocks.map(b => {
+              const top = (b.startMin - MIN_START) * pxPerMin
+              const height = Math.max(8, (b.endMin - b.startMin) * pxPerMin)
+              const timeLabel = `${fmt24(b.startMin)}–${fmt24(b.endMin)}`
 
-                      {/* Floating actions if selected */}
-                      {selectedBlockId === b.id && (
-                        <div style={{ position: 'absolute', right: '8px', top: '6px', display: 'flex', gap: '5px' }}>
-                          <button
-                            onClick={e => {
-                              e.stopPropagation()
-                              openEdit(b)
-                            }}
-                            style={{
-                              fontFamily: "'Work Sans', sans-serif",
-                              fontSize: '10.5px',
-                              fontWeight: 600,
-                              border: '1px solid oklch(0.34 0.006 90)',
-                              background: 'oklch(0.24 0.006 90)',
-                              color: 'oklch(0.78 0.006 90)',
-                              borderRadius: '6px',
-                              padding: '3px 7px',
-                              cursor: 'pointer'
-                            }}
-                          >
-                            Edit
-                          </button>
-                          <button
-                            onClick={e => {
-                              e.stopPropagation()
-                              handleDeleteBlock(b.id)
-                            }}
-                            style={{
-                              fontFamily: "'Work Sans', sans-serif",
-                              fontSize: '12px',
-                              fontWeight: 600,
-                              border: '1px solid oklch(0.34 0.006 90)',
-                              background: 'oklch(0.24 0.006 90)',
-                              color: 'oklch(0.78 0.006 90)',
-                              borderRadius: '6px',
-                              width: '20px',
-                              height: '20px',
-                              cursor: 'pointer',
-                              lineHeight: 1
-                            }}
-                          >
-                            ×
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  )
-                }
-
-                // Standard Task Block
-                const dragging = draggingId === b.id
-                const conflict = conflictIds.has(b.id)
-                const selected = selectedBlockId === b.id
-                const baseBorder = conflict ? 'oklch(0.62 0.2 25)' : 'oklch(0.3 0.006 90)'
-
+              if (b.type === 'buffer') {
                 return (
                   <div
                     key={b.id}
-                    onClick={() => setSelectedBlockId(selected ? null : b.id)}
+                    className="hatch"
+                    onClick={() => setSelectedBlockId(selectedBlockId === b.id ? null : b.id)}
                     style={{
                       position: 'absolute',
                       left: `${gutterWidth}px`,
-                      right: '10px',
+                      right: `${blockRight}px`,
                       top: `${top}px`,
                       height: `${height}px`,
-                      borderRadius: '11px',
-                      background: dragging ? 'oklch(0.27 0.006 90)' : 'oklch(0.2 0.006 90)',
-                      border: `1.5px solid ${baseBorder}`,
-                      cursor: 'default',
-                      transition: dragging ? 'none' : 'background 0.15s',
-                      boxShadow: dragging ? '0 18px 30px -10px rgba(0,0,0,0.55)' : 'none',
-                      opacity: dragging ? 0.88 : b.completed ? 0.55 : 1,
-                      zIndex: dragging ? 20 : selected ? 12 : 3
+                      borderRadius: '9px',
+                      border: '1px solid oklch(0.28 0.006 90)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      overflow: 'hidden',
+                      cursor: 'pointer'
                     }}
                   >
-                    {/* Grab Handle */}
-                    <div
-                      onPointerDown={e => startDrag('move', b, e)}
-                      style={{
-                        position: 'absolute',
-                        left: '6px',
-                        top: 0,
-                        bottom: 0,
-                        width: '16px',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: '3px',
-                        cursor: 'grab',
-                        touchAction: 'none'
-                      }}
-                      title="Drag to move"
-                    >
-                      <div style={{ width: '10px', height: '2px', borderRadius: '1px', background: 'oklch(0.42 0.006 90)' }} />
-                      <div style={{ width: '10px', height: '2px', borderRadius: '1px', background: 'oklch(0.42 0.006 90)' }} />
-                      <div style={{ width: '10px', height: '2px', borderRadius: '1px', background: 'oklch(0.42 0.006 90)' }} />
-                    </div>
-
-                    {/* Content */}
-                    <div
-                      style={{
-                        position: 'absolute',
-                        left: '28px',
-                        right: '10px',
-                        top: 0,
-                        bottom: 0,
-                        display: 'flex',
-                        flexDirection: 'column',
-                        justifyContent: 'center',
-                        gap: '2px',
-                        padding: '6px 0',
-                        overflow: 'hidden'
-                      }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <button
-                          onClick={e => {
-                            e.stopPropagation()
-                            toggleComplete(b.id)
-                          }}
-                          style={{
-                            width: '18px',
-                            height: '18px',
-                            borderRadius: '6px',
-                            border: `1.5px solid ${b.completed ? accent : 'oklch(0.45 0.006 90)'}`,
-                            background: b.completed ? accent : 'transparent',
-                            color: accentText,
-                            fontSize: '11px',
-                            fontWeight: 700,
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            cursor: 'pointer',
-                            padding: 0,
-                            flexShrink: 0
-                          }}
-                        >
-                          {b.completed ? '✓' : ''}
-                        </button>
-                        <span
-                          style={{
-                            fontFamily: "'Work Sans', sans-serif",
-                            fontSize: activeIsMobile ? '13.5px' : '14px',
-                            fontWeight: 500,
-                            color: b.completed ? 'oklch(0.5 0.006 90)' : 'oklch(0.94 0.004 90)',
-                            textDecoration: b.completed ? 'line-through' : 'none',
-                            whiteSpace: 'nowrap',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis'
-                          }}
-                        >
-                          {b.title}
-                        </span>
-                      </div>
+                    {height > 24 && (
                       <span
                         style={{
                           fontFamily: "'JetBrains Mono', monospace",
                           fontSize: '10.5px',
-                          letterSpacing: '0.02em',
-                          color: 'oklch(0.56 0.006 90)',
-                          paddingLeft: '26px'
+                          color: 'oklch(0.6 0.006 90)',
+                          letterSpacing: '0.03em'
                         }}
                       >
-                        {timeLabel}
+                        buffer · {timeLabel}
                       </span>
-                    </div>
-
-                    {/* Conflict dot indicator */}
-                    {conflict && (
-                      <div
-                        style={{
-                          position: 'absolute',
-                          right: '8px',
-                          top: '6px',
-                          width: '8px',
-                          height: '8px',
-                          borderRadius: '50%',
-                          background: 'oklch(0.62 0.2 25)',
-                          boxShadow: '0 0 0 3px oklch(0.62 0.2 25 / 0.22)'
-                        }}
-                        title="Conflict overlap detected"
-                      />
                     )}
 
-                    {/* Action buttons (visible if selected or on hover) */}
+                    {selectedBlockId === b.id && (
+                      <div style={{ position: 'absolute', right: '8px', top: '6px', display: 'flex', gap: '5px' }}>
+                        <button
+                          onClick={e => {
+                            e.stopPropagation()
+                            openEdit(b)
+                          }}
+                          style={{
+                            fontFamily: "'Work Sans', sans-serif",
+                            fontSize: '10.5px',
+                            fontWeight: 600,
+                            border: '1px solid oklch(0.34 0.006 90)',
+                            background: 'oklch(0.24 0.006 90)',
+                            color: 'oklch(0.78 0.006 90)',
+                            borderRadius: '6px',
+                            padding: '3px 7px',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          Edit
+                        </button>
+                        <button
+                          onClick={e => {
+                            e.stopPropagation()
+                            handleDeleteBlock(b.id)
+                          }}
+                          style={{
+                            fontFamily: "'Work Sans', sans-serif",
+                            fontSize: '12px',
+                            fontWeight: 600,
+                            border: '1px solid oklch(0.34 0.006 90)',
+                            background: 'oklch(0.24 0.006 90)',
+                            color: 'oklch(0.78 0.006 90)',
+                            borderRadius: '6px',
+                            width: '20px',
+                            height: '20px',
+                            cursor: 'pointer',
+                            lineHeight: 1
+                          }}
+                        >
+                          ×
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )
+              }
+
+              // Task Block
+              const dragging = draggingId === b.id
+              const conflict = conflictIds.has(b.id)
+              const selected = selectedBlockId === b.id
+              const baseBorder = conflict ? 'oklch(0.62 0.2 25)' : 'oklch(0.3 0.006 90)'
+
+              return (
+                <div
+                  key={b.id}
+                  onClick={() => setSelectedBlockId(selected ? null : b.id)}
+                  style={{
+                    position: 'absolute',
+                    left: `${gutterWidth}px`,
+                    right: `${blockRight}px`,
+                    top: `${top}px`,
+                    height: `${height}px`,
+                    borderRadius: '11px',
+                    background: dragging ? 'oklch(0.27 0.006 90)' : 'oklch(0.2 0.006 90)',
+                    border: `1.5px solid ${baseBorder}`,
+                    cursor: 'default',
+                    transition: dragging ? 'none' : 'background 0.15s',
+                    boxShadow: dragging ? '0 18px 30px -10px rgba(0,0,0,0.55)' : 'none',
+                    opacity: dragging ? 0.88 : b.completed ? 0.55 : 1,
+                    zIndex: dragging ? 20 : selected ? 12 : 3
+                  }}
+                >
+                  {/* Grip Handle */}
+                  <div
+                    onPointerDown={e => startDrag('move', b, e)}
+                    style={{
+                      position: 'absolute',
+                      left: '6px',
+                      top: 0,
+                      bottom: 0,
+                      width: '16px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '3px',
+                      cursor: 'grab',
+                      touchAction: 'none'
+                    }}
+                    title="Drag to move"
+                  >
+                    <div style={{ width: '10px', height: '2px', borderRadius: '1px', background: 'oklch(0.42 0.006 90)' }} />
+                    <div style={{ width: '10px', height: '2px', borderRadius: '1px', background: 'oklch(0.42 0.006 90)' }} />
+                    <div style={{ width: '10px', height: '2px', borderRadius: '1px', background: 'oklch(0.42 0.006 90)' }} />
+                  </div>
+
+                  {/* Block Content */}
+                  <div
+                    style={{
+                      position: 'absolute',
+                      left: '26px',
+                      right: '8px',
+                      top: 0,
+                      bottom: 0,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      justifyContent: 'center',
+                      gap: '2px',
+                      padding: '4px 0',
+                      overflow: 'hidden'
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <button
+                        onClick={e => {
+                          e.stopPropagation()
+                          toggleComplete(b.id)
+                        }}
+                        style={{
+                          width: '18px',
+                          height: '18px',
+                          borderRadius: '6px',
+                          border: `1.5px solid ${b.completed ? accent : 'oklch(0.45 0.006 90)'}`,
+                          background: b.completed ? accent : 'transparent',
+                          color: accentText,
+                          fontSize: '11px',
+                          fontWeight: 700,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          cursor: 'pointer',
+                          padding: 0,
+                          flexShrink: 0
+                        }}
+                      >
+                        {b.completed ? '✓' : ''}
+                      </button>
+                      <span
+                        style={{
+                          fontFamily: "'Work Sans', sans-serif",
+                          fontSize: isMobile ? '13px' : '14px',
+                          fontWeight: 500,
+                          color: b.completed ? 'oklch(0.5 0.006 90)' : 'oklch(0.94 0.004 90)',
+                          textDecoration: b.completed ? 'line-through' : 'none',
+                          whiteSpace: 'nowrap',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis'
+                        }}
+                      >
+                        {b.title}
+                      </span>
+                    </div>
+                    <span
+                      style={{
+                        fontFamily: "'JetBrains Mono', monospace",
+                        fontSize: '10.5px',
+                        letterSpacing: '0.02em',
+                        color: 'oklch(0.56 0.006 90)',
+                        paddingLeft: '26px'
+                      }}
+                    >
+                      {timeLabel}
+                    </span>
+                  </div>
+
+                  {/* Conflict dot */}
+                  {conflict && (
                     <div
                       style={{
                         position: 'absolute',
                         right: '8px',
                         top: '6px',
-                        display: 'flex',
-                        gap: '5px',
-                        opacity: selected ? 1 : 0,
-                        transition: 'opacity 0.12s'
+                        width: '8px',
+                        height: '8px',
+                        borderRadius: '50%',
+                        background: 'oklch(0.62 0.2 25)',
+                        boxShadow: '0 0 0 3px oklch(0.62 0.2 25 / 0.22)'
                       }}
-                      className="group-hover:opacity-100"
-                    >
-                      <button
-                        onClick={e => {
-                          e.stopPropagation()
-                          openEdit(b)
-                        }}
-                        style={{
-                          fontFamily: "'Work Sans', sans-serif",
-                          fontSize: '10.5px',
-                          fontWeight: 600,
-                          border: '1px solid oklch(0.34 0.006 90)',
-                          background: 'oklch(0.24 0.006 90)',
-                          color: 'oklch(0.78 0.006 90)',
-                          borderRadius: '6px',
-                          padding: '3px 7px',
-                          cursor: 'pointer'
-                        }}
-                      >
-                        Edit
-                      </button>
-                      <button
-                        onClick={e => {
-                          e.stopPropagation()
-                          handleDeleteBlock(b.id)
-                        }}
-                        style={{
-                          fontFamily: "'Work Sans', sans-serif",
-                          fontSize: '12px',
-                          fontWeight: 600,
-                          border: '1px solid oklch(0.34 0.006 90)',
-                          background: 'oklch(0.24 0.006 90)',
-                          color: 'oklch(0.78 0.006 90)',
-                          borderRadius: '6px',
-                          width: '20px',
-                          height: '20px',
-                          cursor: 'pointer',
-                          lineHeight: 1
-                        }}
-                      >
-                        ×
-                      </button>
-                    </div>
-
-                    {/* Resize handle at bottom */}
-                    <div
-                      onPointerDown={e => startDrag('resize', b, e)}
-                      style={{
-                        position: 'absolute',
-                        left: '50%',
-                        bottom: '2px',
-                        transform: 'translateX(-50%)',
-                        width: '30px',
-                        height: '4px',
-                        borderRadius: '2px',
-                        background: 'oklch(0.4 0.006 90)',
-                        cursor: 'ns-resize',
-                        touchAction: 'none'
-                      }}
-                      title="Drag to resize"
+                      title="Conflict overlap detected"
                     />
-                  </div>
-                )
-              })}
-            </div>
-          )}
-
-          {/* Desktop Floating Action Button (FAB) */}
-          {!activeIsMobile && blocks.length > 0 && (
-            <button
-              onClick={openAdd}
-              style={{
-                position: 'absolute',
-                right: '24px',
-                bottom: '24px',
-                width: '52px',
-                height: '52px',
-                borderRadius: '16px',
-                border: 'none',
-                background: accent,
-                color: accentText,
-                fontSize: '24px',
-                fontWeight: 600,
-                cursor: 'pointer',
-                boxShadow: `0 12px 24px -8px ${accent}88`,
-                zIndex: 40
-              }}
-              title="Add block"
-            >
-              +
-            </button>
-          )}
-        </div>
-
-        {/* MOBILE BOTTOM NAVIGATION BAR */}
-        {activeIsMobile && (
-          <nav
-            style={{
-              display: 'flex',
-              alignItems: 'stretch',
-              borderTop: '1px solid oklch(0.26 0.006 90)',
-              background: 'oklch(0.19 0.006 90)',
-              padding: '8px 6px calc(8px + env(safe-area-inset-bottom,0px))',
-              gap: '4px',
-              flexShrink: 0
-            }}
-          >
-            <button
-              onClick={goToday}
-              style={{
-                flex: 1,
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                gap: '3px',
-                background: 'none',
-                border: 'none',
-                color: isToday ? accent : 'oklch(0.68 0.006 90)',
-                fontFamily: "'Work Sans', sans-serif",
-                fontSize: '10.5px',
-                fontWeight: 600,
-                padding: '6px 2px',
-                cursor: 'pointer'
-              }}
-            >
-              <span style={{ fontSize: '16px' }}>◎</span>Today
-            </button>
-
-            <button
-              onClick={handleUndo}
-              style={{
-                flex: 1,
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                gap: '3px',
-                background: 'none',
-                border: 'none',
-                color: 'oklch(0.68 0.006 90)',
-                fontFamily: "'Work Sans', sans-serif",
-                fontSize: '10.5px',
-                fontWeight: 600,
-                padding: '6px 2px',
-                cursor: 'pointer',
-                opacity: historyStack.length ? 1 : 0.4,
-                pointerEvents: historyStack.length ? 'auto' : 'none'
-              }}
-            >
-              <span style={{ fontSize: '16px' }}>↺</span>Undo
-            </button>
-
-            <button
-              onClick={openAdd}
-              style={{
-                flex: 1.3,
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                gap: '3px',
-                border: 'none',
-                color: accentText,
-                fontFamily: "'Work Sans', sans-serif",
-                fontSize: '10.5px',
-                fontWeight: 700,
-                padding: '6px 2px',
-                cursor: 'pointer',
-                margin: '-4px 2px',
-                backgroundColor: accent,
-                borderRadius: '12px'
-              }}
-            >
-              <span style={{ fontSize: '17px', lineHeight: 1 }}>+</span>Add
-            </button>
-
-            <button
-              onClick={() => setPanel('settings')}
-              style={{
-                flex: 1,
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                gap: '3px',
-                background: 'none',
-                border: 'none',
-                color: 'oklch(0.68 0.006 90)',
-                fontFamily: "'Work Sans', sans-serif",
-                fontSize: '10.5px',
-                fontWeight: 600,
-                padding: '6px 2px',
-                cursor: 'pointer'
-              }}
-            >
-              <span style={{ fontSize: '16px' }}>⚙</span>Settings
-            </button>
-
-            <button
-              onClick={() => setPanel('review')}
-              style={{
-                flex: 1,
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                gap: '3px',
-                background: 'none',
-                border: 'none',
-                color: 'oklch(0.68 0.006 90)',
-                fontFamily: "'Work Sans', sans-serif",
-                fontSize: '10.5px',
-                fontWeight: 600,
-                padding: '6px 2px',
-                cursor: 'pointer'
-              }}
-            >
-              <span style={{ fontSize: '16px' }}>☰</span>Review
-            </button>
-          </nav>
-        )}
-
-        {/* MODAL: ADD / EDIT BLOCK */}
-        {modal && (
-          <div
-            onClick={() => setModal(null)}
-            style={{
-              position: 'absolute',
-              inset: 0,
-              background: 'rgba(0,0,0,0.5)',
-              zIndex: 70,
-              display: 'flex',
-              alignItems: activeIsMobile ? 'flex-end' : 'center',
-              justifyContent: 'center',
-              animation: 'fadeIn 0.15s ease'
-            }}
-          >
-            <div
-              onClick={e => e.stopPropagation()}
-              style={
-                activeIsMobile
-                  ? {
-                      width: '100%',
-                      maxHeight: '88%',
-                      overflow: 'auto',
-                      background: 'oklch(0.18 0.006 90)',
-                      borderRadius: '20px 20px 0 0',
-                      padding: '20px 18px calc(20px + env(safe-area-inset-bottom,0px))',
-                      animation: 'sheetUp 0.22s ease'
-                    }
-                  : {
-                      width: '420px',
-                      background: 'oklch(0.19 0.006 90)',
-                      border: '1px solid oklch(0.3 0.006 90)',
-                      borderRadius: '16px',
-                      padding: '24px',
-                      boxShadow: '0 30px 60px -20px rgba(0,0,0,0.6)'
-                    }
-              }
-            >
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '18px' }}>
-                <span style={{ fontFamily: "'Work Sans', sans-serif", fontWeight: 600, fontSize: '16px' }}>
-                  {modal.mode === 'add' ? 'Add block' : 'Edit block'}
-                </span>
-                <button
-                  onClick={() => setModal(null)}
-                  style={{
-                    width: '28px',
-                    height: '28px',
-                    borderRadius: '8px',
-                    border: '1px solid oklch(0.3 0.006 90)',
-                    background: 'oklch(0.22 0.006 90)',
-                    color: 'oklch(0.7 0.006 90)',
-                    cursor: 'pointer',
-                    fontSize: '14px'
-                  }}
-                >
-                  ×
-                </button>
-              </div>
-
-              {/* Type pills */}
-              <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
-                <button
-                  type="button"
-                  onClick={() => setModal({ ...modal, draft: { ...modal.draft, type: 'task' } })}
-                  style={typePillStyle(modal.draft.type === 'task')}
-                >
-                  Task
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setModal({ ...modal, draft: { ...modal.draft, type: 'buffer' } })}
-                  style={typePillStyle(modal.draft.type === 'buffer')}
-                >
-                  Buffer
-                </button>
-              </div>
-
-              {/* Title input */}
-              <label
-                style={{
-                  display: 'block',
-                  fontFamily: "'Work Sans', sans-serif",
-                  fontSize: '12px',
-                  color: 'oklch(0.6 0.006 90)',
-                  marginBottom: '6px'
-                }}
-              >
-                {modal.draft.type === 'buffer' ? 'Label (optional)' : 'Title'}
-              </label>
-              <input
-                type="text"
-                value={modal.draft.title}
-                onChange={e => setModal({ ...modal, draft: { ...modal.draft, title: e.target.value } })}
-                placeholder={modal.draft.type === 'buffer' ? 'e.g. Transition' : 'e.g. Deep work block'}
-                style={{
-                  width: '100%',
-                  fontFamily: "'Work Sans', sans-serif",
-                  fontSize: '14px',
-                  background: 'oklch(0.21 0.006 90)',
-                  border: '1px solid oklch(0.32 0.006 90)',
-                  borderRadius: '9px',
-                  padding: '10px 12px',
-                  color: 'oklch(0.92 0.004 90)',
-                  marginBottom: '16px'
-                }}
-              />
-
-              {/* Time inputs */}
-              <div style={{ display: 'flex', gap: '12px', marginBottom: '22px' }}>
-                <div style={{ flex: 1 }}>
-                  <label
-                    style={{
-                      display: 'block',
-                      fontFamily: "'Work Sans', sans-serif",
-                      fontSize: '12px',
-                      color: 'oklch(0.6 0.006 90)',
-                      marginBottom: '6px'
-                    }}
-                  >
-                    Start
-                  </label>
-                  <input
-                    type="time"
-                    value={modal.draft.startStr}
-                    onChange={e => setModal({ ...modal, draft: { ...modal.draft, startStr: e.target.value } })}
-                    style={{
-                      width: '100%',
-                      fontFamily: "'JetBrains Mono', monospace",
-                      fontSize: '14px',
-                      background: 'oklch(0.21 0.006 90)',
-                      border: '1px solid oklch(0.32 0.006 90)',
-                      borderRadius: '9px',
-                      padding: '9px 10px',
-                      color: 'oklch(0.92 0.004 90)'
-                    }}
-                  />
-                </div>
-                <div style={{ flex: 1 }}>
-                  <label
-                    style={{
-                      display: 'block',
-                      fontFamily: "'Work Sans', sans-serif",
-                      fontSize: '12px',
-                      color: 'oklch(0.6 0.006 90)',
-                      marginBottom: '6px'
-                    }}
-                  >
-                    End
-                  </label>
-                  <input
-                    type="time"
-                    value={modal.draft.endStr}
-                    onChange={e => setModal({ ...modal, draft: { ...modal.draft, endStr: e.target.value } })}
-                    style={{
-                      width: '100%',
-                      fontFamily: "'JetBrains Mono', monospace",
-                      fontSize: '14px',
-                      background: 'oklch(0.21 0.006 90)',
-                      border: '1px solid oklch(0.32 0.006 90)',
-                      borderRadius: '9px',
-                      padding: '9px 10px',
-                      color: 'oklch(0.92 0.004 90)'
-                    }}
-                  />
-                </div>
-              </div>
-
-              {/* Modal buttons */}
-              <div style={{ display: 'flex', gap: '10px' }}>
-                {modal.mode === 'edit' && modal.id && (
-                  <button
-                    type="button"
-                    onClick={() => handleDeleteBlock(modal.id!)}
-                    style={{
-                      fontFamily: "'Work Sans', sans-serif",
-                      fontWeight: 600,
-                      fontSize: '13.5px',
-                      border: '1px solid oklch(0.35 0.02 25)',
-                      background: 'oklch(0.22 0.02 25)',
-                      color: 'oklch(0.75 0.14 25)',
-                      borderRadius: '10px',
-                      padding: '11px 16px',
-                      cursor: 'pointer'
-                    }}
-                  >
-                    Delete
-                  </button>
-                )}
-                <div style={{ flex: 1 }} />
-                <button
-                  type="button"
-                  onClick={() => setModal(null)}
-                  style={{
-                    fontFamily: "'Work Sans', sans-serif",
-                    fontWeight: 600,
-                    fontSize: '13.5px',
-                    border: '1px solid oklch(0.32 0.006 90)',
-                    background: 'none',
-                    color: 'oklch(0.72 0.006 90)',
-                    borderRadius: '10px',
-                    padding: '11px 16px',
-                    cursor: 'pointer'
-                  }}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={saveDraft}
-                  style={{
-                    fontFamily: "'Work Sans', sans-serif",
-                    fontWeight: 700,
-                    fontSize: '13.5px',
-                    border: 'none',
-                    background: accent,
-                    color: accentText,
-                    borderRadius: '10px',
-                    padding: '11px 18px',
-                    cursor: 'pointer'
-                  }}
-                >
-                  Save
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* PANEL: SETTINGS & REVIEW */}
-        {panel && (
-          <div
-            onClick={() => setPanel(null)}
-            style={{
-              position: 'absolute',
-              inset: 0,
-              background: 'rgba(0,0,0,0.45)',
-              zIndex: 70,
-              display: 'flex',
-              alignItems: activeIsMobile ? 'flex-end' : 'stretch',
-              justifyContent: 'flex-end',
-              animation: 'fadeIn 0.15s ease'
-            }}
-          >
-            <div
-              onClick={e => e.stopPropagation()}
-              style={
-                activeIsMobile
-                  ? {
-                      width: '100%',
-                      maxHeight: '90%',
-                      overflowY: 'auto',
-                      background: 'oklch(0.18 0.006 90)',
-                      borderRadius: '20px 20px 0 0',
-                      padding: '20px 18px calc(20px + env(safe-area-inset-bottom,0px))',
-                      animation: 'sheetUp 0.22s ease'
-                    }
-                  : {
-                      width: '380px',
-                      height: '100%',
-                      overflowY: 'auto',
-                      background: 'oklch(0.18 0.006 90)',
-                      borderLeft: '1px solid oklch(0.28 0.006 90)',
-                      padding: '24px',
-                      boxShadow: '-20px 0 40px -20px rgba(0,0,0,0.4)'
-                    }
-              }
-            >
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px' }}>
-                <span style={{ fontFamily: "'Work Sans', sans-serif", fontWeight: 600, fontSize: '16px' }}>
-                  {panel === 'settings' ? 'Settings' : 'Day Review'}
-                </span>
-                <button
-                  onClick={() => setPanel(null)}
-                  style={{
-                    width: '28px',
-                    height: '28px',
-                    borderRadius: '8px',
-                    border: '1px solid oklch(0.3 0.006 90)',
-                    background: 'oklch(0.22 0.006 90)',
-                    color: 'oklch(0.7 0.006 90)',
-                    cursor: 'pointer',
-                    fontSize: '14px'
-                  }}
-                >
-                  ×
-                </button>
-              </div>
-
-              {/* Settings Content */}
-              {panel === 'settings' && (
-                <div>
-                  <div style={{ marginBottom: '22px' }}>
-                    <label
-                      style={{
-                        display: 'block',
-                        fontFamily: "'Work Sans', sans-serif",
-                        fontSize: '12px',
-                        color: 'oklch(0.6 0.006 90)',
-                        marginBottom: '8px'
-                      }}
-                    >
-                      Timezone
-                    </label>
-                    <select
-                      value={timezone}
-                      onChange={e => handleSetTimezone(e.target.value)}
-                      style={{
-                        width: '100%',
-                        fontFamily: "'Work Sans', sans-serif",
-                        fontSize: '13.5px',
-                        background: 'oklch(0.21 0.006 90)',
-                        border: '1px solid oklch(0.32 0.006 90)',
-                        borderRadius: '9px',
-                        padding: '10px 12px',
-                        color: 'oklch(0.92 0.004 90)'
-                      }}
-                    >
-                      <option value="America/Los_Angeles">Pacific Time (Los Angeles)</option>
-                      <option value="America/New_York">Eastern Time (New York)</option>
-                      <option value="Europe/London">London (GMT)</option>
-                      <option value="Asia/Kolkata">India (IST)</option>
-                      <option value="Asia/Tokyo">Tokyo (JST)</option>
-                      <option value="UTC">UTC</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label
-                      style={{
-                        display: 'block',
-                        fontFamily: "'Work Sans', sans-serif",
-                        fontSize: '12px',
-                        color: 'oklch(0.6 0.006 90)',
-                        marginBottom: '8px'
-                      }}
-                    >
-                      Cascade behavior
-                    </label>
-                    <div
-                      style={{
-                        fontFamily: "'Work Sans', sans-serif",
-                        fontSize: '12px',
-                        color: 'oklch(0.55 0.006 90)',
-                        marginBottom: '10px',
-                        lineHeight: 1.5
-                      }}
-                    >
-                      When moving a block pushes it into the next one, should Daylog offer to shift the rest of your day too?
-                    </div>
-                    <div
-                      style={{
-                        display: 'flex',
-                        background: 'oklch(0.21 0.006 90)',
-                        border: '1px solid oklch(0.3 0.006 90)',
-                        borderRadius: '10px',
-                        padding: '3px',
-                        gap: '3px'
-                      }}
-                    >
-                      <button
-                        type="button"
-                        onClick={() => handleSetCascadeMode('always')}
-                        style={pillStyle(cascadeMode === 'always')}
-                      >
-                        Always
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleSetCascadeMode('ask')}
-                        style={pillStyle(cascadeMode === 'ask')}
-                      >
-                        Ask
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleSetCascadeMode('never')}
-                        style={pillStyle(cascadeMode === 'never')}
-                      >
-                        Never
-                      </button>
-                    </div>
-                  </div>
-
-                  {activeIsMobile && (
-                    <div style={{ marginTop: '28px', borderTop: '1px solid oklch(0.26 0.006 90)', paddingTop: '16px' }}>
-                      <form action="/auth/signout" method="post">
-                        <button
-                          type="submit"
-                          style={{
-                            width: '100%',
-                            fontFamily: "'Work Sans', sans-serif",
-                            fontSize: '13.5px',
-                            fontWeight: 600,
-                            padding: '11px',
-                            borderRadius: '10px',
-                            border: '1px solid oklch(0.32 0.006 90)',
-                            background: 'oklch(0.22 0.006 90)',
-                            color: 'oklch(0.8 0.006 90)',
-                            cursor: 'pointer'
-                          }}
-                        >
-                          Sign out
-                        </button>
-                      </form>
-                    </div>
                   )}
-                </div>
-              )}
 
-              {/* Day Review Content */}
-              {panel === 'review' && (
-                <div style={{ background: 'oklch(0.21 0.006 90)', border: '1px solid oklch(0.3 0.006 90)', borderRadius: '14px', padding: '18px' }}>
-                  <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', marginBottom: '12px' }}>
-                    <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: '26px', fontWeight: 600, color: accent }}>
-                      {completedCount}
-                    </span>
-                    <span style={{ fontFamily: "'Work Sans', sans-serif", fontSize: '13px', color: 'oklch(0.6 0.006 90)' }}>
-                      of {tasksOnly.length} tasks completed
-                    </span>
+                  {/* Actions (visible if selected or on hover) */}
+                  <div
+                    style={{
+                      position: 'absolute',
+                      right: '8px',
+                      top: '6px',
+                      display: 'flex',
+                      gap: '5px',
+                      opacity: selected ? 1 : 0,
+                      transition: 'opacity 0.12s'
+                    }}
+                    className="group-hover:opacity-100"
+                  >
+                    <button
+                      onClick={e => {
+                        e.stopPropagation()
+                        openEdit(b)
+                      }}
+                      style={{
+                        fontFamily: "'Work Sans', sans-serif",
+                        fontSize: '10.5px',
+                        fontWeight: 600,
+                        border: '1px solid oklch(0.34 0.006 90)',
+                        background: 'oklch(0.24 0.006 90)',
+                        color: 'oklch(0.78 0.006 90)',
+                        borderRadius: '6px',
+                        padding: '3px 7px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      Edit
+                    </button>
+                    <button
+                      onClick={e => {
+                        e.stopPropagation()
+                        handleDeleteBlock(b.id)
+                      }}
+                      style={{
+                        fontFamily: "'Work Sans', sans-serif",
+                        fontSize: '12px',
+                        fontWeight: 600,
+                        border: '1px solid oklch(0.34 0.006 90)',
+                        background: 'oklch(0.24 0.006 90)',
+                        color: 'oklch(0.78 0.006 90)',
+                        borderRadius: '6px',
+                        width: '20px',
+                        height: '20px',
+                        cursor: 'pointer',
+                        lineHeight: 1
+                      }}
+                    >
+                      ×
+                    </button>
                   </div>
-                  <p style={{ fontFamily: "'Work Sans', sans-serif", fontSize: '13.5px', lineHeight: 1.65, color: 'oklch(0.82 0.004 90)', margin: 0 }}>
-                    {reviewText}
-                  </p>
+
+                  {/* Resize Handle at Bottom */}
+                  <div
+                    onPointerDown={e => startDrag('resize', b, e)}
+                    style={{
+                      position: 'absolute',
+                      left: '50%',
+                      bottom: '2px',
+                      transform: 'translateX(-50%)',
+                      width: '30px',
+                      height: '4px',
+                      borderRadius: '2px',
+                      background: 'oklch(0.4 0.006 90)',
+                      cursor: 'ns-resize',
+                      touchAction: 'none'
+                    }}
+                    title="Drag to resize"
+                  />
                 </div>
+              )
+            })}
+          </div>
+        )}
+
+        {/* Desktop Floating Action Button (+ FAB) */}
+        {!isMobile && blocks.length > 0 && (
+          <button
+            onClick={openAdd}
+            className="fixed right-8 bottom-8 w-13 h-13 rounded-2xl flex items-center justify-center font-bold text-2xl shadow-2xl cursor-pointer hover:scale-105 active:scale-95 transition-all z-40"
+            style={{
+              backgroundColor: accent,
+              color: accentText,
+              boxShadow: `0 12px 28px -6px ${accent}88`
+            }}
+            title="Add block"
+          >
+            +
+          </button>
+        )}
+      </main>
+
+      {/* =========================================================================
+          3. MOBILE BOTTOM TOOLBAR (FULL-WIDTH EDGE-TO-EDGE)
+      ========================================================================== */}
+      <nav className="flex md:hidden w-full items-stretch border-t border-[oklch(0.24_0.006_90)] bg-[oklch(0.18_0.006_90)] px-2 py-1.5 pb-[calc(6px+env(safe-area-inset-bottom,0px))] gap-1 shrink-0 z-30">
+        <button
+          onClick={goToday}
+          className="flex-1 flex flex-col items-center gap-0.5 bg-transparent border-none text-[10.5px] font-semibold py-1 cursor-pointer"
+          style={{ color: isToday ? accent : 'oklch(0.68 0.006 90)' }}
+        >
+          <span className="text-[16px] leading-tight">◎</span>
+          Today
+        </button>
+
+        <button
+          onClick={handleUndo}
+          className="flex-1 flex flex-col items-center gap-0.5 bg-transparent border-none text-[10.5px] font-semibold py-1 cursor-pointer"
+          style={{
+            color: 'oklch(0.68 0.006 90)',
+            opacity: historyStack.length ? 1 : 0.4,
+            pointerEvents: historyStack.length ? 'auto' : 'none'
+          }}
+        >
+          <span className="text-[16px] leading-tight">↺</span>
+          Undo
+        </button>
+
+        <button
+          onClick={openAdd}
+          className="flex-[1.3] flex flex-col items-center justify-center gap-0.5 border-none font-bold text-[11px] py-1 mx-0.5 rounded-xl cursor-pointer shadow-md"
+          style={{ backgroundColor: accent, color: accentText }}
+        >
+          <span className="text-[18px] leading-none font-bold">+</span>
+          Add
+        </button>
+
+        <button
+          onClick={() => setPanel('settings')}
+          className="flex-1 flex flex-col items-center gap-0.5 bg-transparent border-none text-[10.5px] font-semibold py-1 cursor-pointer text-[oklch(0.68_0.006_90)]"
+        >
+          <span className="text-[16px] leading-tight">⚙</span>
+          Settings
+        </button>
+
+        <button
+          onClick={() => setPanel('review')}
+          className="flex-1 flex flex-col items-center gap-0.5 bg-transparent border-none text-[10.5px] font-semibold py-1 cursor-pointer text-[oklch(0.68_0.006_90)]"
+        >
+          <span className="text-[16px] leading-tight">☰</span>
+          Review
+        </button>
+      </nav>
+
+      {/* =========================================================================
+          4. MODAL: ADD / EDIT BLOCK (RESPONSIVE: SHEET ON MOBILE, CARD ON DESKTOP)
+      ========================================================================== */}
+      {modal && (
+        <div
+          onClick={() => setModal(null)}
+          className="fixed inset-0 bg-black/60 z-50 flex items-end md:items-center justify-center animate-fadeIn"
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            className="w-full md:w-[440px] max-h-[90dvh] overflow-y-auto bg-[oklch(0.19_0.006_90)] border-t md:border border-[oklch(0.28_0.006_90)] rounded-t-3xl md:rounded-2xl p-6 pb-[calc(20px+env(safe-area-inset-bottom,0px))] shadow-2xl animate-sheetUp md:animate-none"
+          >
+            <div className="flex items-center justify-between mb-4">
+              <span className="font-semibold text-lg text-[oklch(0.94_0.004_90)]">
+                {modal.mode === 'add' ? 'Add block' : 'Edit block'}
+              </span>
+              <button
+                onClick={() => setModal(null)}
+                className="w-7 h-7 rounded-lg border border-[oklch(0.3_0.006_90)] bg-[oklch(0.22_0.006_90)] text-[oklch(0.7_0.006_90)] cursor-pointer text-base flex items-center justify-center"
+              >
+                ×
+              </button>
+            </div>
+
+            {/* Type selector */}
+            <div className="flex gap-2 mb-4">
+              <button
+                type="button"
+                onClick={() => setModal({ ...modal, draft: { ...modal.draft, type: 'task' } })}
+                style={typePillStyle(modal.draft.type === 'task')}
+              >
+                Task
+              </button>
+              <button
+                type="button"
+                onClick={() => setModal({ ...modal, draft: { ...modal.draft, type: 'buffer' } })}
+                style={typePillStyle(modal.draft.type === 'buffer')}
+              >
+                Buffer
+              </button>
+            </div>
+
+            {/* Title field */}
+            <label className="block text-xs font-medium text-[oklch(0.6_0.006_90)] mb-1.5">
+              {modal.draft.type === 'buffer' ? 'Label (optional)' : 'Title'}
+            </label>
+            <input
+              type="text"
+              value={modal.draft.title}
+              onChange={e => setModal({ ...modal, draft: { ...modal.draft, title: e.target.value } })}
+              placeholder={modal.draft.type === 'buffer' ? 'e.g. Transition' : 'e.g. Deep work block'}
+              className="w-full text-sm bg-[oklch(0.21_0.006_90)] border border-[oklch(0.32_0.006_90)] rounded-xl p-3 text-[oklch(0.92_0.004_90)] mb-4 outline-none focus:border-[#d9a441] transition-colors"
+            />
+
+            {/* Time inputs */}
+            <div className="flex gap-3 mb-6">
+              <div className="flex-1">
+                <label className="block text-xs font-medium text-[oklch(0.6_0.006_90)] mb-1.5">
+                  Start
+                </label>
+                <input
+                  type="time"
+                  value={modal.draft.startStr}
+                  onChange={e => setModal({ ...modal, draft: { ...modal.draft, startStr: e.target.value } })}
+                  className="w-full font-mono text-sm bg-[oklch(0.21_0.006_90)] border border-[oklch(0.32_0.006_90)] rounded-xl p-2.5 text-[oklch(0.92_0.004_90)] outline-none"
+                />
+              </div>
+              <div className="flex-1">
+                <label className="block text-xs font-medium text-[oklch(0.6_0.006_90)] mb-1.5">
+                  End
+                </label>
+                <input
+                  type="time"
+                  value={modal.draft.endStr}
+                  onChange={e => setModal({ ...modal, draft: { ...modal.draft, endStr: e.target.value } })}
+                  className="w-full font-mono text-sm bg-[oklch(0.21_0.006_90)] border border-[oklch(0.32_0.006_90)] rounded-xl p-2.5 text-[oklch(0.92_0.004_90)] outline-none"
+                />
+              </div>
+            </div>
+
+            {/* Action buttons */}
+            <div className="flex gap-2.5 items-center">
+              {modal.mode === 'edit' && modal.id && (
+                <button
+                  type="button"
+                  onClick={() => handleDeleteBlock(modal.id!)}
+                  className="text-sm font-semibold border border-[oklch(0.35_0.02_25)] bg-[oklch(0.22_0.02_25)] text-[oklch(0.75_0.14_25)] rounded-xl py-3 px-4 cursor-pointer hover:bg-[oklch(0.26_0.02_25)] transition-colors"
+                >
+                  Delete
+                </button>
               )}
-            </div>
-          </div>
-        )}
-
-        {/* CASCADE PROMPT POPOVER */}
-        {cascadePrompt && (
-          <div
-            style={{
-              position: 'absolute',
-              left: '50%',
-              bottom: activeIsMobile ? '84px' : '24px',
-              transform: 'translateX(-50%)',
-              width: 'min(320px, 88%)',
-              background: 'oklch(0.24 0.008 70)',
-              border: '1px solid oklch(0.4 0.03 70)',
-              borderRadius: '13px',
-              padding: '14px 16px',
-              boxShadow: '0 16px 34px -12px rgba(0,0,0,0.5)',
-              zIndex: 60,
-              animation: 'fadeIn 0.15s ease'
-            }}
-          >
-            <div
-              style={{
-                fontFamily: "'Work Sans', sans-serif",
-                fontSize: '13.5px',
-                color: 'oklch(0.94 0.006 90)',
-                marginBottom: '12px',
-                lineHeight: 1.4
-              }}
-            >
-              Shift {cascadePrompt.count} following item{cascadePrompt.count > 1 ? 's' : ''} by {Math.abs(cascadePrompt.delta)} min?
-            </div>
-            <div style={{ display: 'flex', gap: '8px' }}>
+              <div className="flex-1" />
               <button
-                onClick={() => setCascadePrompt(null)}
-                style={{
-                  flex: 1,
-                  fontFamily: "'Work Sans', sans-serif",
-                  fontWeight: 600,
-                  fontSize: '12.5px',
-                  border: '1px solid oklch(0.4 0.01 90)',
-                  background: 'none',
-                  color: 'oklch(0.85 0.006 90)',
-                  borderRadius: '8px',
-                  padding: '8px 10px',
-                  cursor: 'pointer'
-                }}
+                type="button"
+                onClick={() => setModal(null)}
+                className="text-sm font-semibold border border-[oklch(0.32_0.006_90)] bg-transparent text-[oklch(0.72_0.006_90)] rounded-xl py-3 px-5 cursor-pointer hover:bg-[oklch(0.23_0.006_90)] transition-colors"
               >
-                Don't cascade
+                Cancel
               </button>
               <button
-                onClick={() => applyCascade(cascadePrompt.chain, cascadePrompt.delta)}
-                style={{
-                  flex: 1,
-                  fontFamily: "'Work Sans', sans-serif",
-                  fontWeight: 700,
-                  fontSize: '12.5px',
-                  border: 'none',
-                  background: accent,
-                  color: accentText,
-                  borderRadius: '8px',
-                  padding: '8px 10px',
-                  cursor: 'pointer'
-                }}
+                type="button"
+                onClick={saveDraft}
+                style={{ backgroundColor: accent, color: accentText }}
+                className="text-sm font-bold border-none rounded-xl py-3 px-6 cursor-pointer shadow-md hover:brightness-105 active:scale-95 transition-all"
               >
-                Cascade
+                Save
               </button>
             </div>
           </div>
-        )}
+        </div>
+      )}
 
-        {/* FLOATING TOAST NOTIFICATION */}
-        {toast && (
+      {/* =========================================================================
+          5. PANELS: SETTINGS & DAY REVIEW (RESPONSIVE: SHEET ON MOBILE, DRAWER ON DESKTOP)
+      ========================================================================== */}
+      {panel && (
+        <div
+          onClick={() => setPanel(null)}
+          className="fixed inset-0 bg-black/50 z-50 flex items-end md:items-stretch justify-end animate-fadeIn"
+        >
           <div
-            style={{
-              position: 'absolute',
-              left: '50%',
-              bottom: activeIsMobile ? '84px' : '24px',
-              transform: 'translateX(-50%)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '12px',
-              background: 'oklch(0.23 0.006 90)',
-              border: '1px solid oklch(0.32 0.006 90)',
-              borderRadius: '11px',
-              padding: '10px 10px 10px 16px',
-              boxShadow: '0 14px 30px -10px rgba(0,0,0,0.5)',
-              zIndex: 55,
-              animation: 'toastIn 0.18s ease'
-            }}
+            onClick={e => e.stopPropagation()}
+            className="w-full md:w-[380px] max-h-[90dvh] md:max-h-none md:h-full overflow-y-auto bg-[oklch(0.18_0.006_90)] border-t md:border-t-0 md:border-l border-[oklch(0.28_0.006_90)] rounded-t-3xl md:rounded-none p-6 pb-[calc(20px+env(safe-area-inset-bottom,0px))] shadow-2xl animate-sheetUp md:animate-none"
           >
-            <span style={{ fontFamily: "'Work Sans', sans-serif", fontSize: '13px', color: 'oklch(0.88 0.004 90)' }}>
-              {toast.msg}
-            </span>
+            <div className="flex items-center justify-between mb-5">
+              <span className="font-semibold text-lg text-[oklch(0.94_0.004_90)]">
+                {panel === 'settings' ? 'Settings' : 'Day Review'}
+              </span>
+              <button
+                onClick={() => setPanel(null)}
+                className="w-7 h-7 rounded-lg border border-[oklch(0.3_0.006_90)] bg-[oklch(0.22_0.006_90)] text-[oklch(0.7_0.006_90)] cursor-pointer text-base flex items-center justify-center"
+              >
+                ×
+              </button>
+            </div>
+
+            {/* Settings content */}
+            {panel === 'settings' && (
+              <div>
+                <div className="mb-5">
+                  <label className="block text-xs font-medium text-[oklch(0.6_0.006_90)] mb-2">
+                    Timezone
+                  </label>
+                  <select
+                    value={timezone}
+                    onChange={e => handleSetTimezone(e.target.value)}
+                    className="w-full text-sm bg-[oklch(0.21_0.006_90)] border border-[oklch(0.32_0.006_90)] rounded-xl p-3 text-[oklch(0.92_0.004_90)] outline-none"
+                  >
+                    <option value="America/Los_Angeles">Pacific Time (Los Angeles)</option>
+                    <option value="America/New_York">Eastern Time (New York)</option>
+                    <option value="Europe/London">London (GMT)</option>
+                    <option value="Asia/Kolkata">India (IST)</option>
+                    <option value="Asia/Tokyo">Tokyo (JST)</option>
+                    <option value="UTC">UTC</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-[oklch(0.6_0.006_90)] mb-2">
+                    Cascade behavior
+                  </label>
+                  <div className="text-xs text-[oklch(0.55_0.006_90)] mb-3 leading-relaxed">
+                    When moving a block pushes it into the next one, should Daylog offer to shift the rest of your day too?
+                  </div>
+                  <div className="flex bg-[oklch(0.21_0.006_90)] border border-[oklch(0.3_0.006_90)] rounded-xl p-1 gap-1">
+                    <button
+                      type="button"
+                      onClick={() => handleSetCascadeMode('always')}
+                      style={pillStyle(cascadeMode === 'always')}
+                    >
+                      Always
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleSetCascadeMode('ask')}
+                      style={pillStyle(cascadeMode === 'ask')}
+                    >
+                      Ask
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleSetCascadeMode('never')}
+                      style={pillStyle(cascadeMode === 'never')}
+                    >
+                      Never
+                    </button>
+                  </div>
+                </div>
+
+                <div className="mt-8 pt-4 border-t border-[oklch(0.26_0.006_90)]">
+                  <form action="/auth/signout" method="post">
+                    <button
+                      type="submit"
+                      className="w-full text-sm font-semibold py-3 px-4 rounded-xl border border-[oklch(0.32_0.006_90)] bg-[oklch(0.22_0.006_90)] text-[oklch(0.8_0.006_90)] cursor-pointer hover:bg-[oklch(0.26_0.006_90)] transition-colors"
+                    >
+                      Sign out
+                    </button>
+                  </form>
+                </div>
+              </div>
+            )}
+
+            {/* Day Review content */}
+            {panel === 'review' && (
+              <div className="bg-[oklch(0.21_0.006_90)] border border-[oklch(0.3_0.006_90)] rounded-2xl p-5 shadow-sm">
+                <div className="flex items-baseline gap-2 mb-3">
+                  <span className="font-mono text-3xl font-bold" style={{ color: accent }}>
+                    {completedCount}
+                  </span>
+                  <span className="text-sm text-[oklch(0.6_0.006_90)]">
+                    of {tasksOnly.length} tasks completed
+                  </span>
+                </div>
+                <p className="text-sm leading-relaxed text-[oklch(0.84_0.004_90)] m-0">
+                  {reviewText}
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================================
+          6. CASCADE PROMPT POPOVER
+      ========================================================================== */}
+      {cascadePrompt && (
+        <div className="fixed left-1/2 -translate-x-1/2 bottom-20 md:bottom-8 z-50 w-[min(340px,92%)] bg-[oklch(0.24_0.008_70)] border border-[oklch(0.4_0.03_70)] rounded-2xl p-4 shadow-2xl animate-fadeIn">
+          <div className="text-sm text-[oklch(0.94_0.006_90)] mb-3 leading-snug">
+            Shift {cascadePrompt.count} following item{cascadePrompt.count > 1 ? 's' : ''} by {Math.abs(cascadePrompt.delta)} min?
+          </div>
+          <div className="flex gap-2">
             <button
-              onClick={handleUndo}
-              style={{
-                fontFamily: "'Work Sans', sans-serif",
-                fontWeight: 700,
-                fontSize: '12.5px',
-                border: 'none',
-                background: 'none',
-                color: accent,
-                cursor: 'pointer',
-                padding: '4px 8px'
-              }}
+              onClick={() => setCascadePrompt(null)}
+              className="flex-1 text-xs font-semibold border border-[oklch(0.4_0.01_90)] bg-transparent text-[oklch(0.85_0.006_90)] rounded-lg py-2 px-2.5 cursor-pointer hover:bg-[oklch(0.28_0.01_90)] transition-colors"
             >
-              Undo
+              Don't cascade
+            </button>
+            <button
+              onClick={() => applyCascade(cascadePrompt.chain, cascadePrompt.delta)}
+              style={{ backgroundColor: accent, color: accentText }}
+              className="flex-1 text-xs font-bold border-none rounded-lg py-2 px-2.5 cursor-pointer shadow-md hover:brightness-105 active:scale-95 transition-all"
+            >
+              Cascade
             </button>
           </div>
-        )}
-      </div>
+        </div>
+      )}
+
+      {/* =========================================================================
+          7. FLOATING TOAST NOTIFICATION
+      ========================================================================== */}
+      {toast && (
+        <div className="fixed left-1/2 -translate-x-1/2 bottom-20 md:bottom-8 z-50 flex items-center gap-3 bg-[oklch(0.23_0.006_90)] border border-[oklch(0.32_0.006_90)] rounded-xl py-2.5 px-4 shadow-2xl animate-toastIn">
+          <span className="text-sm text-[oklch(0.88_0.004_90)]">{toast.msg}</span>
+          <button
+            onClick={handleUndo}
+            style={{ color: accent }}
+            className="text-xs font-bold border-none bg-transparent cursor-pointer py-1 px-1.5 hover:underline"
+          >
+            Undo
+          </button>
+        </div>
+      )}
     </div>
   )
 }
