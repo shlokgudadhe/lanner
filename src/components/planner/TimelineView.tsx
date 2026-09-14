@@ -1,12 +1,13 @@
 'use client'
 
-import React, { useState, useEffect, useRef, useCallback } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { format, differenceInMinutes, startOfDay, parseISO, isSameDay, addDays } from 'date-fns'
 import { PlannerItem } from '@/types'
 import { createItem, updateItem, deleteItem } from '@/app/actions/items'
 import { logUndo, performUndo } from '@/app/actions/undo'
 import { updateProfile } from '@/app/actions/profile'
+import { createClient } from '@/utils/supabase/client'
 
 const MIN_START = 360  // 06:00 (6 AM)
 const MIN_END = 1440   // 24:00 (12 AM next day)
@@ -61,9 +62,6 @@ export default function TimelineView({
   )
   const [timezone, setTimezone] = useState(initialTimezone)
 
-  // History stack for instant local undo
-  const [historyStack, setHistoryStack] = useState<LocalBlock[][]>([])
-
   // UI Modals & Panels
   const [modal, setModal] = useState<{
     mode: 'add' | 'edit'
@@ -81,6 +79,7 @@ export default function TimelineView({
     chain: string[]
     delta: number
     count: number
+    snapshot: any[]
   } | null>(null)
 
   const [toast, setToast] = useState<{ msg: string } | null>(null)
@@ -139,6 +138,85 @@ export default function TimelineView({
     setBlocks(mapped)
   }, [initialItems, day])
 
+  // Realtime Supabase Subscription for Cross-Device / Cross-Session Sync
+  useEffect(() => {
+    const supabase = createClient()
+    const baseDay = parseISO(day)
+    const dayStart = startOfDay(baseDay)
+
+    const channel = supabase
+      .channel(`realtime-items-${day}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'items',
+          filter: `day=eq.${day}`
+        },
+        (payload) => {
+          if (payload.eventType === 'INSERT') {
+            const newItem = payload.new as PlannerItem
+            if (!newItem.is_deleted) {
+              setBlocks(prev => {
+                if (prev.some(b => b.id === newItem.id)) return prev
+                const start = parseISO(newItem.start_time)
+                const end = parseISO(newItem.end_time)
+                const newBlock: LocalBlock = {
+                  id: newItem.id,
+                  type: (newItem.is_buffer ? 'buffer' : 'task') as 'task' | 'buffer',
+                  title: newItem.title || (newItem.is_buffer ? 'Buffer' : 'Untitled'),
+                  startMin: differenceInMinutes(start, dayStart),
+                  endMin: differenceInMinutes(end, dayStart),
+                  completed: !!newItem.is_completed,
+                  completedAt: newItem.completed_at,
+                  sortOrder: newItem.sort_order || 0
+                }
+                return [...prev, newBlock].sort((a, b) => a.startMin - b.startMin)
+              })
+            }
+          } else if (payload.eventType === 'UPDATE') {
+            const updatedItem = payload.new as PlannerItem
+            if (updatedItem.is_deleted) {
+              setBlocks(prev => prev.filter(b => b.id !== updatedItem.id))
+            } else {
+              const start = parseISO(updatedItem.start_time)
+              const end = parseISO(updatedItem.end_time)
+              setBlocks(prev => {
+                const existingIdx = prev.findIndex(b => b.id === updatedItem.id)
+                const updatedBlock: LocalBlock = {
+                  id: updatedItem.id,
+                  type: (updatedItem.is_buffer ? 'buffer' : 'task') as 'task' | 'buffer',
+                  title: updatedItem.title || (updatedItem.is_buffer ? 'Buffer' : 'Untitled'),
+                  startMin: differenceInMinutes(start, dayStart),
+                  endMin: differenceInMinutes(end, dayStart),
+                  completed: !!updatedItem.is_completed,
+                  completedAt: updatedItem.completed_at,
+                  sortOrder: updatedItem.sort_order || 0
+                }
+                if (existingIdx >= 0) {
+                  const copy = [...prev]
+                  copy[existingIdx] = updatedBlock
+                  return copy.sort((a, b) => a.startMin - b.startMin)
+                }
+                return [...prev, updatedBlock].sort((a, b) => a.startMin - b.startMin)
+              })
+            }
+          } else if (payload.eventType === 'DELETE') {
+            const oldItem = payload.old as { id: string }
+            if (oldItem?.id) {
+              setBlocks(prev => prev.filter(b => b.id !== oldItem.id))
+            }
+          }
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [day])
+
   // Real-time clock update
   useEffect(() => {
     const interval = setInterval(() => setNow(new Date()), 30000)
@@ -155,7 +233,7 @@ export default function TimelineView({
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [blocks, historyStack])
+  }, [day])
 
   // Toast notification
   const showToast = (msg: string) => {
@@ -164,29 +242,65 @@ export default function TimelineView({
     toastTimerRef.current = setTimeout(() => setToast(null), 4000)
   }
 
-  // Push to undo stack
-  const pushLocalHistory = () => {
-    setHistoryStack(prev => [...prev.slice(-19), JSON.parse(JSON.stringify(blocks))])
-  }
-
-  // Handle undo (local + server sync)
+  // Handle undo (reverts from DB atomic undo_log and updates local state)
   const handleUndo = async () => {
-    if (historyStack.length > 0) {
-      const prev = historyStack[historyStack.length - 1]
-      setHistoryStack(prevStack => prevStack.slice(0, -1))
-      setBlocks(prev)
-      setToast(null)
-      setCascadePrompt(null)
-    }
-
     try {
       const res = await performUndo()
-      if (res.success && res.day && res.day !== day) {
-        router.push(`/planner?day=${res.day}`)
+      if (!res.success) {
+        showToast('Nothing to undo')
+        return
       }
+
+      // If action was on another day, navigate there
+      if (res.day && res.day !== day) {
+        router.push(`/planner?day=${res.day}`)
+        showToast('Reverted action on ' + res.day)
+        return
+      }
+
+      // Reconcile local state immediately with reverted items
+      const baseDay = parseISO(day)
+      const dayStart = startOfDay(baseDay)
+
+      if (res.actionType === 'create') {
+        const createdId = res.payload?.id
+        setBlocks(prev => prev.filter(b => b.id !== createdId))
+      } else if (res.actionType === 'update' && res.revertedItems && res.revertedItems.length > 0) {
+        setBlocks(prev => {
+          let updatedList = [...prev]
+          for (const item of res.revertedItems!) {
+            if (item.is_deleted) {
+              updatedList = updatedList.filter(b => b.id !== item.id)
+            } else {
+              const start = parseISO(item.start_time)
+              const end = parseISO(item.end_time)
+              const blockData: LocalBlock = {
+                id: item.id,
+                type: (item.is_buffer ? 'buffer' : 'task') as 'task' | 'buffer',
+                title: item.title || (item.is_buffer ? 'Buffer' : 'Untitled'),
+                startMin: differenceInMinutes(start, dayStart),
+                endMin: differenceInMinutes(end, dayStart),
+                completed: !!item.is_completed,
+                completedAt: item.completed_at,
+                sortOrder: item.sort_order || 0
+              }
+              const idx = updatedList.findIndex(b => b.id === item.id)
+              if (idx >= 0) {
+                updatedList[idx] = blockData
+              } else {
+                updatedList.push(blockData)
+              }
+            }
+          }
+          return updatedList.sort((a, b) => a.startMin - b.startMin)
+        })
+      }
+
+      setCascadePrompt(null)
       showToast('Action undone')
     } catch (e) {
-      console.error('Undo sync error:', e)
+      console.error('Undo error:', e)
+      showToast('Failed to undo')
     }
   }
 
@@ -215,7 +329,6 @@ export default function TimelineView({
 
   // Toggle complete
   const toggleComplete = async (id: string) => {
-    pushLocalHistory()
     const target = blocks.find(b => b.id === id)
     if (!target) return
 
@@ -234,7 +347,6 @@ export default function TimelineView({
 
   // Delete block
   const handleDeleteBlock = async (id: string) => {
-    pushLocalHistory()
     const target = blocks.find(b => b.id === id)
     if (!target) return
 
@@ -288,8 +400,6 @@ export default function TimelineView({
       return
     }
 
-    pushLocalHistory()
-
     const startIso = new Date(`${day}T${fmt24(startMin)}:00`).toISOString()
     const endIso = new Date(`${day}T${fmt24(endMin)}:00`).toISOString()
 
@@ -329,6 +439,19 @@ export default function TimelineView({
       const isBuffer = draft.type === 'buffer'
       const title = isBuffer ? (draft.title.trim() || 'Buffer') : (draft.title.trim() || 'Untitled')
 
+      const prev = blocks.find(b => b.id === id)
+      if (prev) {
+        logUndo('update', {
+          items: [{
+            id,
+            title: prev.title,
+            is_buffer: prev.type === 'buffer',
+            start_time: new Date(`${day}T${fmt24(prev.startMin)}:00`).toISOString(),
+            end_time: new Date(`${day}T${fmt24(prev.endMin)}:00`).toISOString()
+          }]
+        }, day).catch(console.error)
+      }
+
       setBlocks(prev =>
         prev
           .map(b => (b.id === id ? { ...b, type: draft.type, title, startMin, endMin } : b))
@@ -353,7 +476,6 @@ export default function TimelineView({
   // Pointer Drag & Resize Handlers
   const startDrag = (mode: 'move' | 'resize', block: LocalBlock, e: React.PointerEvent) => {
     e.stopPropagation()
-    pushLocalHistory()
 
     dragRef.current = {
       mode,
@@ -400,7 +522,10 @@ export default function TimelineView({
         const delta = d.mode === 'move' ? moved.startMin - d.origStart : moved.endMin - d.origEnd
         if (delta === 0) return currentBlocks
 
-        // Sync to Supabase
+        const origStartIso = new Date(`${day}T${fmt24(d.origStart)}:00`).toISOString()
+        const origEndIso = new Date(`${day}T${fmt24(d.origEnd)}:00`).toISOString()
+
+        // Sync moved item to Supabase
         const startIso = new Date(`${day}T${fmt24(moved.startMin)}:00`).toISOString()
         const endIso = new Date(`${day}T${fmt24(moved.endMin)}:00`).toISOString()
         updateItem(moved.id, { start_time: startIso, end_time: endIso }).catch(console.error)
@@ -419,13 +544,29 @@ export default function TimelineView({
         }
 
         if (chain.length > 0) {
+          const cascadeSnapshot = [
+            { id: moved.id, start_time: origStartIso, end_time: origEndIso },
+            ...chain.map(cid => {
+              const cItem = currentBlocks.find(b => b.id === cid)!
+              return {
+                id: cid,
+                start_time: new Date(`${day}T${fmt24(cItem.startMin)}:00`).toISOString(),
+                end_time: new Date(`${day}T${fmt24(cItem.endMin)}:00`).toISOString()
+              }
+            })
+          ]
+
           if (cascadeMode === 'never') {
             showToast('Times now overlap')
+            logUndo('update', { items: [{ id: moved.id, start_time: origStartIso, end_time: origEndIso }] }, day).catch(console.error)
           } else if (cascadeMode === 'always') {
-            applyCascade(chain, delta, currentBlocks)
+            applyCascade(chain, delta, currentBlocks, cascadeSnapshot)
           } else {
-            setCascadePrompt({ chain, delta, count: chain.length })
+            setCascadePrompt({ chain, delta, count: chain.length, snapshot: cascadeSnapshot })
           }
+        } else {
+          // No cascade, single moved/resized item logged atomically
+          logUndo('update', { items: [{ id: moved.id, start_time: origStartIso, end_time: origEndIso }] }, day).catch(console.error)
         }
 
         return currentBlocks
@@ -437,14 +578,18 @@ export default function TimelineView({
     setDraggingId(block.id)
   }
 
-  // Cascade shift execution
-  const applyCascade = async (chain: string[], delta: number, currentList = blocks) => {
+  // Cascade shift execution with atomic undo logging
+  const applyCascade = async (chain: string[], delta: number, currentList = blocks, atomicSnapshot?: any[]) => {
     const updated = currentList.map(t =>
       chain.includes(t.id) ? { ...t, startMin: t.startMin + delta, endMin: t.endMin + delta } : t
     )
     setBlocks(updated)
     setCascadePrompt(null)
     showToast(`Shifted ${chain.length} item${chain.length > 1 ? 's' : ''}`)
+
+    if (atomicSnapshot && atomicSnapshot.length > 0) {
+      logUndo('update', { items: atomicSnapshot }, day).catch(console.error)
+    }
 
     for (const id of chain) {
       const item = updated.find(t => t.id === id)
@@ -455,6 +600,7 @@ export default function TimelineView({
       }
     }
   }
+
 
   // Update profile settings
   const handleSetCascadeMode = async (mode: 'always' | 'ask' | 'never') => {
@@ -645,10 +791,9 @@ export default function TimelineView({
               border: '1px solid oklch(0.3 0.006 90)',
               borderRadius: '9px',
               padding: '8px 14px',
-              cursor: historyStack.length ? 'pointer' : 'default',
+              cursor: 'pointer',
               background: 'oklch(0.2 0.006 90)',
-              color: historyStack.length ? 'oklch(0.78 0.006 90)' : 'oklch(0.4 0.006 90)',
-              opacity: historyStack.length ? 1 : 0.5
+              color: 'oklch(0.78 0.006 90)'
             }}
           >
             Undo
@@ -1132,12 +1277,7 @@ export default function TimelineView({
 
         <button
           onClick={handleUndo}
-          className="flex-1 flex flex-col items-center gap-0.5 bg-transparent border-none text-[10.5px] font-semibold py-1 cursor-pointer"
-          style={{
-            color: 'oklch(0.68 0.006 90)',
-            opacity: historyStack.length ? 1 : 0.4,
-            pointerEvents: historyStack.length ? 'auto' : 'none'
-          }}
+          className="flex-1 flex flex-col items-center gap-0.5 bg-transparent border-none text-[10.5px] font-semibold py-1 cursor-pointer text-[oklch(0.68_0.006_90)] hover:text-white"
         >
           <span className="text-[16px] leading-tight">↺</span>
           Undo
@@ -1401,13 +1541,18 @@ export default function TimelineView({
           </div>
           <div className="flex gap-2">
             <button
-              onClick={() => setCascadePrompt(null)}
+              onClick={() => {
+                if (cascadePrompt.snapshot && cascadePrompt.snapshot[0]) {
+                  logUndo('update', { items: [cascadePrompt.snapshot[0]] }, day).catch(console.error)
+                }
+                setCascadePrompt(null)
+              }}
               className="flex-1 text-xs font-semibold border border-[oklch(0.4_0.01_90)] bg-transparent text-[oklch(0.85_0.006_90)] rounded-lg py-2 px-2.5 cursor-pointer hover:bg-[oklch(0.28_0.01_90)] transition-colors"
             >
               Don't cascade
             </button>
             <button
-              onClick={() => applyCascade(cascadePrompt.chain, cascadePrompt.delta)}
+              onClick={() => applyCascade(cascadePrompt.chain, cascadePrompt.delta, blocks, cascadePrompt.snapshot)}
               style={{ backgroundColor: accent, color: accentText }}
               className="flex-1 text-xs font-bold border-none rounded-lg py-2 px-2.5 cursor-pointer shadow-md hover:brightness-105 active:scale-95 transition-all"
             >

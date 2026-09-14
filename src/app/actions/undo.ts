@@ -36,9 +36,16 @@ export async function logUndo(actionType: 'create' | 'update', payload: any, day
 
 /**
  * Performs the most recent undo action for the authenticated user.
- * @returns The day that was modified, or null if nothing to undo.
+ * @returns The day that was modified, actionType, payload, and the list of reverted items.
  */
-export async function performUndo(): Promise<{ success: boolean, day: string | null, error?: string }> {
+export async function performUndo(): Promise<{
+  success: boolean
+  day: string | null
+  actionType?: 'create' | 'update'
+  payload?: any
+  revertedItems?: any[]
+  error?: string
+}> {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   
@@ -46,53 +53,68 @@ export async function performUndo(): Promise<{ success: boolean, day: string | n
     return { success: false, day: null, error: 'Not authenticated' }
   }
 
-  // 1. Get latest undo log
-  const { data: logs } = await supabase
+  // 1. Get latest undo log strictly scoped to current user, ordered by created_at DESC
+  const { data: logs, error: fetchErr } = await supabase
     .from('undo_log')
     .select('*')
     .eq('user_id', user.id)
     .order('created_at', { ascending: false })
     .limit(1)
 
-  if (!logs || logs.length === 0) {
+  if (fetchErr || !logs || logs.length === 0) {
     return { success: false, day: null, error: 'Nothing to undo' }
   }
 
   const lastLog = logs[0]
-  const targetDay = lastLog.payload.__day
+  const targetDay = lastLog.payload?.__day || null
+  let revertedItems: any[] = []
 
   try {
-    // 2. Revert the action
+    // 2. Revert the action atomically
     if (lastLog.action_type === 'create') {
       // Revert a create by soft-deleting the item
-      await supabase
+      const { data } = await supabase
         .from('items')
         .update({ is_deleted: true })
         .eq('id', lastLog.payload.id)
         .eq('user_id', user.id)
+        .select()
+        .single()
+
+      if (data) revertedItems = [data]
     } else if (lastLog.action_type === 'update') {
-      // Revert an update by restoring previous fields
-      // Payload should be { items: [{ id, ...fields }, ...] }
+      // Revert an update by restoring previous fields for all affected items atomically
       if (lastLog.payload.items && Array.isArray(lastLog.payload.items)) {
-        const updatePromises = lastLog.payload.items.map((item: any) => {
+        const updatePromises = lastLog.payload.items.map(async (item: any) => {
           const { id, ...fields } = item
-          return supabase
+          const { data } = await supabase
             .from('items')
             .update(fields)
             .eq('id', id)
             .eq('user_id', user.id)
+            .select()
+            .single()
+          return data
         })
-        await Promise.all(updatePromises)
+        const results = await Promise.all(updatePromises)
+        revertedItems = results.filter(Boolean)
       }
     }
 
-    // 3. Delete the used log
+    // 3. Delete the used log entry
     await supabase.from('undo_log').delete().eq('id', lastLog.id)
 
     revalidatePath('/planner')
-    return { success: true, day: targetDay }
+    return {
+      success: true,
+      day: targetDay,
+      actionType: lastLog.action_type,
+      payload: lastLog.payload,
+      revertedItems
+    }
   } catch (error) {
     console.error('Failed to perform undo:', error)
     return { success: false, day: null, error: 'Failed to apply undo' }
   }
 }
+
