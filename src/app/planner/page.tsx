@@ -12,11 +12,6 @@ export default async function PlannerPage(props: { searchParams: Promise<{ day?:
     redirect('/login')
   }
 
-  const searchParams = await props.searchParams;
-  const day = searchParams.day || format(new Date(), 'yyyy-MM-dd')
-  
-  const items = await getItems(day)
-  
   const { data: profile } = await supabase
     .from('profiles')
     .select('timezone, cascade_preference')
@@ -25,6 +20,23 @@ export default async function PlannerPage(props: { searchParams: Promise<{ day?:
     
   const cascadePreference = profile?.cascade_preference || 'ask'
   const timezone = profile?.timezone || 'America/Los_Angeles'
+
+  const searchParams = await props.searchParams;
+  let day = searchParams.day
+  if (!day) {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    }).formatToParts(new Date())
+    const y = parts.find(p => p.type === 'year')?.value
+    const m = parts.find(p => p.type === 'month')?.value
+    const d = parts.find(p => p.type === 'day')?.value
+    day = `${y}-${m}-${d}`
+  }
+  
+  const items = await getItems(day)
 
   return (
     <main className="h-dvh w-full flex flex-col bg-[oklch(0.16_0.006_90)] text-[oklch(0.92_0.004_90)] overflow-hidden m-0 p-0">
