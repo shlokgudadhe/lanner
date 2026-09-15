@@ -16,6 +16,13 @@ const SNAP_MINUTES = 5
 const pad2 = (n: number) => String(n).padStart(2, '0')
 const fmt24 = (m: number) => pad2(Math.floor(m / 60)) + ':' + pad2(m % 60)
 const fmt12h = (h: number) => (h === 12 ? '12 PM' : h === 0 || h === 24 ? '12 AM' : h > 12 ? (h - 12) + ' PM' : h + ' AM')
+const fmtTime12h = (m: number) => {
+  const h = Math.floor(m / 60)
+  const min = Math.floor(m % 60)
+  const ampm = h >= 12 ? 'PM' : 'AM'
+  const h12 = h % 12 || 12
+  return `${h12}:${pad2(min)} ${ampm}`
+}
 const toMin = (str: string) => {
   const [h, m] = str.split(':').map(Number)
   return h * 60 + m
@@ -77,7 +84,7 @@ export default function TimelineView({
     }
   } | null>(null)
 
-  const [panel, setPanel] = useState<'settings' | 'review' | null>(null)
+  const [panel, setPanel] = useState<'settings' | 'overview' | null>(null)
   const [cascadePrompt, setCascadePrompt] = useState<{
     direction: 'up' | 'down'
     draggedId: string
@@ -371,6 +378,62 @@ export default function TimelineView({
       await logUndo('update', { items: [{ id, is_deleted: false }] }, day)
     } catch (err) {
       console.error('Error deleting item:', err)
+    }
+  }
+
+  // Reorder in overview
+  const handleOverviewReorder = async (index: number, direction: 'up' | 'down') => {
+    const sorted = blocks.slice().sort((a, b) => a.startMin - b.startMin)
+    if (direction === 'up' && index === 0) return
+    if (direction === 'down' && index === sorted.length - 1) return
+
+    const b1 = sorted[index]
+    const b2 = direction === 'up' ? sorted[index - 1] : sorted[index + 1]
+
+    const dur1 = b1.endMin - b1.startMin
+    const dur2 = b2.endMin - b2.startMin
+
+    const isAdjacent = b1.endMin === b2.startMin || b2.endMin === b1.startMin
+
+    let newStart1, newStart2
+    if (isAdjacent) {
+      if (b1.startMin < b2.startMin) {
+        newStart2 = b1.startMin
+        newStart1 = newStart2 + dur2
+      } else {
+        newStart1 = b2.startMin
+        newStart2 = newStart1 + dur1
+      }
+    } else {
+      newStart1 = b2.startMin
+      newStart2 = b1.startMin
+    }
+
+    const newEnd1 = newStart1 + dur1
+    const newEnd2 = newStart2 + dur2
+
+    setBlocks(prev => prev.map(b => {
+      if (b.id === b1.id) return { ...b, startMin: newStart1, endMin: newEnd1 }
+      if (b.id === b2.id) return { ...b, startMin: newStart2, endMin: newEnd2 }
+      return b
+    }))
+
+    const startIso1 = new Date(`${day}T${fmt24(newStart1)}:00`).toISOString()
+    const endIso1 = new Date(`${day}T${fmt24(newEnd1)}:00`).toISOString()
+    const startIso2 = new Date(`${day}T${fmt24(newStart2)}:00`).toISOString()
+    const endIso2 = new Date(`${day}T${fmt24(newEnd2)}:00`).toISOString()
+
+    try {
+      await Promise.all([
+        updateItem(b1.id, { start_time: startIso1, end_time: endIso1 }),
+        updateItem(b2.id, { start_time: startIso2, end_time: endIso2 })
+      ])
+      await logUndo('update', { items: [
+        { id: b1.id, start_time: new Date(`${day}T${fmt24(b1.startMin)}:00`).toISOString(), end_time: new Date(`${day}T${fmt24(b1.endMin)}:00`).toISOString() },
+        { id: b2.id, start_time: new Date(`${day}T${fmt24(b2.startMin)}:00`).toISOString(), end_time: new Date(`${day}T${fmt24(b2.endMin)}:00`).toISOString() }
+      ]}, day)
+    } catch (err) {
+      console.error('Error reordering items:', err)
     }
   }
 
@@ -761,32 +824,7 @@ export default function TimelineView({
     }
   }
 
-  // Review panel computations
-  const completedCount = tasksOnly.filter(t => t.completed).length
-  const notDone = tasksOnly.filter(t => !t.completed).map(t => t.title)
-  const conflictPairTitles: string[] = []
-  for (let i = 0; i < sortedTasks.length; i++) {
-    for (let j = i + 1; j < sortedTasks.length; j++) {
-      if (sortedTasks[j].startMin < sortedTasks[i].endMin) {
-        conflictPairTitles.push(`${sortedTasks[i].title} and ${sortedTasks[j].title}`)
-      }
-    }
-  }
-
-  let reviewText =
-    tasksOnly.length === 0
-      ? 'Nothing was scheduled for this day, so there’s nothing to report on. A quiet day counts too.'
-      : `You completed ${completedCount} of ${tasksOnly.length} scheduled tasks.`
-
-  if (completedCount > 0) {
-    reviewText += ' Good momentum keeping your focus blocks on track.'
-  }
-  if (conflictPairTitles.length > 0) {
-    reviewText += ` Note: ${conflictPairTitles[0]} had overlapping times — worth reviewing if unexpected delay occurred.`
-  }
-  if (notDone.length > 0) {
-    reviewText += ` Remaining open tasks: ${notDone.join(', ')}.`
-  }
+  // Removed old review panel computations
 
   // Style helpers
   const pillStyle = (active: boolean): React.CSSProperties => ({
@@ -851,9 +889,9 @@ export default function TimelineView({
 
         <div className="flex items-center gap-1.5">
           <button
-            onClick={() => setPanel('review')}
+            onClick={() => setPanel('overview')}
             className="w-8 h-8 rounded-lg border border-[oklch(0.3_0.006_90)] bg-[oklch(0.2_0.006_90)] text-[oklch(0.75_0.006_90)] text-sm flex items-center justify-center cursor-pointer"
-            title="Day Review"
+            title="Day Overview"
           >
             ☰
           </button>
@@ -935,9 +973,9 @@ export default function TimelineView({
           </button>
 
           <button
-            onClick={() => setPanel('review')}
+            onClick={() => setPanel('overview')}
             className="w-9 h-9 rounded-lg border border-[oklch(0.3_0.006_90)] bg-[oklch(0.2_0.006_90)] text-[oklch(0.75_0.006_90)] text-sm flex items-center justify-center hover:bg-[oklch(0.24_0.006_90)] cursor-pointer transition-colors"
-            title="Day Review"
+            title="Day Overview"
           >
             ☰
           </button>
@@ -1409,11 +1447,11 @@ export default function TimelineView({
         </button>
 
         <button
-          onClick={() => setPanel('review')}
+          onClick={() => setPanel('overview')}
           className="flex-1 flex flex-col items-center gap-0.5 bg-transparent border-none text-[10.5px] font-semibold py-1 cursor-pointer text-[oklch(0.68_0.006_90)]"
         >
           <span className="text-[16px] leading-tight">☰</span>
-          Review
+          Overview
         </button>
       </nav>
 
@@ -1713,7 +1751,7 @@ export default function TimelineView({
       )}
 
       {/* =========================================================================
-          6. PANELS: SETTINGS & DAY REVIEW (RESPONSIVE: SHEET ON MOBILE, DRAWER ON DESKTOP)
+          6. PANELS: SETTINGS & DAY OVERVIEW (RESPONSIVE: SHEET ON MOBILE, DRAWER ON DESKTOP)
       ========================================================================== */}
       {panel && (
         <div
@@ -1726,7 +1764,7 @@ export default function TimelineView({
           >
             <div className="flex items-center justify-between mb-5">
               <span className="font-semibold text-lg text-[oklch(0.94_0.004_90)]">
-                {panel === 'settings' ? 'Settings' : 'Day Review'}
+                {panel === 'settings' ? 'Settings' : 'Day Overview'}
               </span>
               <button
                 onClick={() => setPanel(null)}
@@ -1802,20 +1840,80 @@ export default function TimelineView({
               </div>
             )}
 
-            {/* Day Review content */}
-            {panel === 'review' && (
-              <div className="bg-[oklch(0.21_0.006_90)] border border-[oklch(0.3_0.006_90)] rounded-2xl p-5 shadow-sm">
-                <div className="flex items-baseline gap-2 mb-3">
-                  <span className="font-mono text-3xl font-bold" style={{ color: accent }}>
-                    {completedCount}
-                  </span>
-                  <span className="text-sm text-[oklch(0.6_0.006_90)]">
-                    of {tasksOnly.length} tasks completed
-                  </span>
-                </div>
-                <p className="text-sm leading-relaxed text-[oklch(0.84_0.004_90)] m-0">
-                  {reviewText}
-                </p>
+            {/* Day Overview content */}
+            {panel === 'overview' && (
+              <div className="flex flex-col gap-3">
+                {blocks.length === 0 ? (
+                  <div className="text-center text-[oklch(0.6_0.006_90)] text-sm py-8">
+                    No tasks or buffers scheduled for today.
+                  </div>
+                ) : (
+                  blocks
+                    .slice()
+                    .sort((a, b) => a.startMin - b.startMin)
+                    .map((b, index) => (
+                      <div
+                        key={b.id}
+                        className="bg-[oklch(0.21_0.006_90)] border border-[oklch(0.3_0.006_90)] rounded-xl p-4 shadow-sm flex flex-col gap-2"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex items-start gap-3">
+                            {b.type === 'task' ? (
+                              <button
+                                onClick={() => toggleComplete(b.id)}
+                                className={`w-5 h-5 mt-0.5 rounded-md border flex items-center justify-center cursor-pointer transition-colors shrink-0 ${b.completed ? 'bg-[#d9a441] border-[#d9a441] text-[oklch(0.2_0.006_90)]' : 'bg-transparent border-[oklch(0.4_0.006_90)] text-transparent hover:border-[oklch(0.6_0.006_90)]'}`}
+                              >
+                                {b.completed && (
+                                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                  </svg>
+                                )}
+                              </button>
+                            ) : (
+                              <div className="w-5 h-5 mt-0.5 shrink-0" />
+                            )}
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <span className={`font-semibold text-[oklch(0.94_0.004_90)] text-[15px] leading-tight ${b.completed ? 'line-through opacity-50' : ''}`}>
+                                  {b.title}
+                                </span>
+                                {b.type === 'buffer' && (
+                                  <span className="shrink-0 text-[9px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-[oklch(0.26_0.006_90)] text-[oklch(0.75_0.006_90)]">
+                                    Buffer
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-xs text-[oklch(0.65_0.006_90)] font-medium mt-1">
+                                {fmtTime12h(b.startMin)} - {fmtTime12h(b.endMin)}
+                              </div>
+                            </div>
+                          </div>
+                          
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button onClick={() => openEdit(b)} className="w-7 h-7 rounded-lg hover:bg-[oklch(0.26_0.006_90)] flex items-center justify-center cursor-pointer text-[oklch(0.7_0.006_90)]" title="Edit">
+                              ✎
+                            </button>
+                            <button onClick={() => handleDeleteBlock(b.id)} className="w-7 h-7 rounded-lg hover:bg-[oklch(0.26_0.006_90)] flex items-center justify-center cursor-pointer text-[oklch(0.7_0.006_90)] hover:text-red-400" title="Delete">
+                              ✕
+                            </button>
+                            <div className="flex flex-col ml-1 border-l border-[oklch(0.3_0.006_90)] pl-1">
+                              <button disabled={index === 0} onClick={() => handleOverviewReorder(index, 'up')} className="h-4 flex items-center justify-center cursor-pointer text-[oklch(0.6_0.006_90)] hover:text-[oklch(0.9_0.006_90)] disabled:opacity-30 disabled:cursor-default" title="Move Up">
+                                ▲
+                              </button>
+                              <button disabled={index === blocks.length - 1} onClick={() => handleOverviewReorder(index, 'down')} className="h-4 flex items-center justify-center cursor-pointer text-[oklch(0.6_0.006_90)] hover:text-[oklch(0.9_0.006_90)] disabled:opacity-30 disabled:cursor-default" title="Move Down">
+                                ▼
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                        {b.description && (
+                          <div className={`text-sm text-[oklch(0.75_0.006_90)] mt-2 leading-relaxed ml-8 ${b.completed ? 'opacity-50' : ''}`}>
+                            {b.description}
+                          </div>
+                        )}
+                      </div>
+                    ))
+                )}
               </div>
             )}
           </div>
