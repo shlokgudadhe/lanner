@@ -1461,7 +1461,7 @@ export default function TimelineView({
       {modal && (
         <div
           onClick={() => setModal(null)}
-          className="fixed inset-0 bg-black/60 z-50 flex items-end md:items-center justify-center animate-fadeIn"
+          className="fixed inset-0 bg-black/60 z-[70] flex items-end md:items-center justify-center animate-fadeIn"
         >
           <div
             onClick={e => e.stopPropagation()}
@@ -1585,7 +1585,7 @@ export default function TimelineView({
       {detailBlock && (
         <div
           onClick={() => setDetailBlock(null)}
-          className="fixed inset-0 bg-black/50 z-50 flex items-end md:items-stretch justify-end animate-fadeIn"
+          className="fixed inset-0 bg-black/50 z-[60] flex items-end md:items-stretch justify-end animate-fadeIn"
         >
           <div
             onClick={e => e.stopPropagation()}
