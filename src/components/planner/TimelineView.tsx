@@ -1854,24 +1854,21 @@ export default function TimelineView({
                     .map((b, index) => (
                       <div
                         key={b.id}
-                        className="bg-[oklch(0.21_0.006_90)] border border-[oklch(0.3_0.006_90)] rounded-xl p-4 shadow-sm flex flex-col gap-2"
+                        onClick={() => setDetailBlock(b)}
+                        className="bg-[oklch(0.21_0.006_90)] border border-[oklch(0.3_0.006_90)] rounded-xl p-4 shadow-sm flex flex-col gap-2 cursor-pointer hover:border-[oklch(0.4_0.006_90)] transition-colors"
                       >
                         <div className="flex items-start justify-between gap-3">
                           <div className="flex items-start gap-3">
-                            {b.type === 'task' ? (
-                              <button
-                                onClick={() => toggleComplete(b.id)}
-                                className={`w-5 h-5 mt-0.5 rounded-md border flex items-center justify-center cursor-pointer transition-colors shrink-0 ${b.completed ? 'bg-[#d9a441] border-[#d9a441] text-[oklch(0.2_0.006_90)]' : 'bg-transparent border-[oklch(0.4_0.006_90)] text-transparent hover:border-[oklch(0.6_0.006_90)]'}`}
-                              >
-                                {b.completed && (
-                                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                                  </svg>
-                                )}
-                              </button>
-                            ) : (
-                              <div className="w-5 h-5 mt-0.5 shrink-0" />
-                            )}
+                            <button
+                              onClick={(e) => { e.stopPropagation(); toggleComplete(b.id); }}
+                              className={`w-5 h-5 mt-0.5 rounded-md border flex items-center justify-center cursor-pointer transition-colors shrink-0 ${b.completed ? 'bg-[#d9a441] border-[#d9a441] text-[oklch(0.2_0.006_90)]' : 'bg-transparent border-[oklch(0.4_0.006_90)] text-transparent hover:border-[oklch(0.6_0.006_90)]'}`}
+                            >
+                              {b.completed && (
+                                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                </svg>
+                              )}
+                            </button>
                             <div>
                               <div className="flex items-center gap-2">
                                 <span className={`font-semibold text-[oklch(0.94_0.004_90)] text-[15px] leading-tight ${b.completed ? 'line-through opacity-50' : ''}`}>
@@ -1890,17 +1887,11 @@ export default function TimelineView({
                           </div>
                           
                           <div className="flex items-center gap-1 shrink-0">
-                            <button onClick={() => openEdit(b)} className="w-7 h-7 rounded-lg hover:bg-[oklch(0.26_0.006_90)] flex items-center justify-center cursor-pointer text-[oklch(0.7_0.006_90)]" title="Edit">
-                              ✎
-                            </button>
-                            <button onClick={() => handleDeleteBlock(b.id)} className="w-7 h-7 rounded-lg hover:bg-[oklch(0.26_0.006_90)] flex items-center justify-center cursor-pointer text-[oklch(0.7_0.006_90)] hover:text-red-400" title="Delete">
-                              ✕
-                            </button>
-                            <div className="flex flex-col ml-1 border-l border-[oklch(0.3_0.006_90)] pl-1">
-                              <button disabled={index === 0} onClick={() => handleOverviewReorder(index, 'up')} className="h-4 flex items-center justify-center cursor-pointer text-[oklch(0.6_0.006_90)] hover:text-[oklch(0.9_0.006_90)] disabled:opacity-30 disabled:cursor-default" title="Move Up">
+                            <div className="flex flex-col border-l border-[oklch(0.3_0.006_90)] pl-2">
+                              <button disabled={index === 0} onClick={(e) => { e.stopPropagation(); handleOverviewReorder(index, 'up'); }} className="h-5 w-6 flex items-center justify-center cursor-pointer text-[oklch(0.6_0.006_90)] hover:text-[oklch(0.9_0.006_90)] disabled:opacity-30 disabled:cursor-default" title="Move Up">
                                 ▲
                               </button>
-                              <button disabled={index === blocks.length - 1} onClick={() => handleOverviewReorder(index, 'down')} className="h-4 flex items-center justify-center cursor-pointer text-[oklch(0.6_0.006_90)] hover:text-[oklch(0.9_0.006_90)] disabled:opacity-30 disabled:cursor-default" title="Move Down">
+                              <button disabled={index === blocks.length - 1} onClick={(e) => { e.stopPropagation(); handleOverviewReorder(index, 'down'); }} className="h-5 w-6 flex items-center justify-center cursor-pointer text-[oklch(0.6_0.006_90)] hover:text-[oklch(0.9_0.006_90)] disabled:opacity-30 disabled:cursor-default" title="Move Down">
                                 ▼
                               </button>
                             </div>
