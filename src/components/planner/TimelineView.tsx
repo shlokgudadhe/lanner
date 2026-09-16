@@ -160,79 +160,89 @@ export default function TimelineView({
     const supabase = createClient()
     const baseDay = parseISO(day)
     const dayStart = startOfDay(baseDay)
+    
+    let channel: any
 
-    const channel = supabase
-      .channel(`realtime-items-${day}`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'items',
-          filter: `day=eq.${day}`
-        },
-        (payload) => {
-          if (payload.eventType === 'INSERT') {
-            const newItem = payload.new as PlannerItem
-            if (!newItem.is_deleted) {
-              setBlocks(prev => {
-                if (prev.some(b => b.id === newItem.id)) return prev
-                const start = parseISO(newItem.start_time)
-                const end = parseISO(newItem.end_time)
-                const newBlock: LocalBlock = {
-                  id: newItem.id,
-                  type: (newItem.is_buffer ? 'buffer' : 'task') as 'task' | 'buffer',
-                  title: newItem.title || (newItem.is_buffer ? 'Buffer' : 'Untitled'),
-                  description: newItem.description || null,
-                  startMin: differenceInMinutes(start, dayStart),
-                  endMin: differenceInMinutes(end, dayStart),
-                  completed: !!newItem.is_completed,
-                  completedAt: newItem.completed_at,
-                  sortOrder: newItem.sort_order || 0
-                }
-                return [...prev, newBlock].sort((a, b) => a.startMin - b.startMin)
-              })
-            }
-          } else if (payload.eventType === 'UPDATE') {
-            const updatedItem = payload.new as PlannerItem
-            if (updatedItem.is_deleted) {
-              setBlocks(prev => prev.filter(b => b.id !== updatedItem.id))
-            } else {
-              const start = parseISO(updatedItem.start_time)
-              const end = parseISO(updatedItem.end_time)
-              setBlocks(prev => {
-                const existingIdx = prev.findIndex(b => b.id === updatedItem.id)
-                const updatedBlock: LocalBlock = {
-                  id: updatedItem.id,
-                  type: (updatedItem.is_buffer ? 'buffer' : 'task') as 'task' | 'buffer',
-                  title: updatedItem.title || (updatedItem.is_buffer ? 'Buffer' : 'Untitled'),
-                  description: updatedItem.description || null,
-                  startMin: differenceInMinutes(start, dayStart),
-                  endMin: differenceInMinutes(end, dayStart),
-                  completed: !!updatedItem.is_completed,
-                  completedAt: updatedItem.completed_at,
-                  sortOrder: updatedItem.sort_order || 0
-                }
-                if (existingIdx >= 0) {
-                  const copy = [...prev]
-                  copy[existingIdx] = updatedBlock
-                  return copy.sort((a, b) => a.startMin - b.startMin)
-                }
-                return [...prev, updatedBlock].sort((a, b) => a.startMin - b.startMin)
-              })
-            }
-          } else if (payload.eventType === 'DELETE') {
-            const oldItem = payload.old as { id: string }
-            if (oldItem?.id) {
-              setBlocks(prev => prev.filter(b => b.id !== oldItem.id))
+    const initRealtime = async () => {
+      // Ensure the socket is authenticated before subscribing so RLS rules pass
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) return
+
+      channel = supabase
+        .channel(`realtime-items-${day}`)
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'items',
+            filter: `day=eq.${day}`
+          },
+          (payload) => {
+            if (payload.eventType === 'INSERT') {
+              const newItem = payload.new as PlannerItem
+              if (!newItem.is_deleted) {
+                setBlocks(prev => {
+                  if (prev.some(b => b.id === newItem.id)) return prev
+                  const start = parseISO(newItem.start_time)
+                  const end = parseISO(newItem.end_time)
+                  const newBlock: LocalBlock = {
+                    id: newItem.id,
+                    type: (newItem.is_buffer ? 'buffer' : 'task') as 'task' | 'buffer',
+                    title: newItem.title || (newItem.is_buffer ? 'Buffer' : 'Untitled'),
+                    description: newItem.description || null,
+                    startMin: differenceInMinutes(start, dayStart),
+                    endMin: differenceInMinutes(end, dayStart),
+                    completed: !!newItem.is_completed,
+                    completedAt: newItem.completed_at,
+                    sortOrder: newItem.sort_order || 0
+                  }
+                  return [...prev, newBlock].sort((a, b) => a.startMin - b.startMin)
+                })
+              }
+            } else if (payload.eventType === 'UPDATE') {
+              const updatedItem = payload.new as PlannerItem
+              if (updatedItem.is_deleted) {
+                setBlocks(prev => prev.filter(b => b.id !== updatedItem.id))
+              } else {
+                const start = parseISO(updatedItem.start_time)
+                const end = parseISO(updatedItem.end_time)
+                setBlocks(prev => {
+                  const existingIdx = prev.findIndex(b => b.id === updatedItem.id)
+                  const updatedBlock: LocalBlock = {
+                    id: updatedItem.id,
+                    type: (updatedItem.is_buffer ? 'buffer' : 'task') as 'task' | 'buffer',
+                    title: updatedItem.title || (updatedItem.is_buffer ? 'Buffer' : 'Untitled'),
+                    description: updatedItem.description || null,
+                    startMin: differenceInMinutes(start, dayStart),
+                    endMin: differenceInMinutes(end, dayStart),
+                    completed: !!updatedItem.is_completed,
+                    completedAt: updatedItem.completed_at,
+                    sortOrder: updatedItem.sort_order || 0
+                  }
+                  if (existingIdx >= 0) {
+                    const copy = [...prev]
+                    copy[existingIdx] = updatedBlock
+                    return copy.sort((a, b) => a.startMin - b.startMin)
+                  }
+                  return [...prev, updatedBlock].sort((a, b) => a.startMin - b.startMin)
+                })
+              }
+            } else if (payload.eventType === 'DELETE') {
+              const oldItem = payload.old as { id: string }
+              if (oldItem?.id) {
+                setBlocks(prev => prev.filter(b => b.id !== oldItem.id))
+              }
             }
           }
-        }
-      )
-      .subscribe()
+        )
+        .subscribe()
+    }
+
+    initRealtime()
 
     return () => {
-      supabase.removeChannel(channel)
+      if (channel) supabase.removeChannel(channel)
     }
   }, [day])
 
