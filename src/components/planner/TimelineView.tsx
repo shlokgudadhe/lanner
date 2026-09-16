@@ -234,6 +234,15 @@ export default function TimelineView({
                 setBlocks(prev => prev.filter(b => b.id !== oldItem.id))
               }
             }
+
+            // Proactive full sync:
+            // Ensure any complex changes (cascading shifts, profile updates) match perfectly.
+            // Only trigger if this device isn't currently dragging to avoid interrupting UX.
+            if (!dragRef.current) {
+              startTransition(() => {
+                router.refresh()
+              })
+            }
           }
         )
         .subscribe()
