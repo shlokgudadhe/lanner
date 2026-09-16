@@ -33,6 +33,7 @@ interface TimelineViewProps {
   day: string
   cascadePreference: string
   initialTimezone?: string
+  userEmail?: string
 }
 
 interface LocalBlock {
@@ -51,7 +52,8 @@ export default function TimelineView({
   initialItems,
   day,
   cascadePreference,
-  initialTimezone = 'America/Los_Angeles'
+  initialTimezone = 'America/Los_Angeles',
+  userEmail = ''
 }: TimelineViewProps) {
   const router = useRouter()
 
@@ -502,14 +504,22 @@ export default function TimelineView({
 
   // Modal open/close
   const openAdd = () => {
+    let defaultStart = MIN_START
+    if (blocks.length > 0) {
+      const maxEnd = Math.max(...blocks.map(b => b.endMin))
+      defaultStart = Math.min(MIN_END - 30, Math.max(MIN_START, maxEnd))
+    } else {
+      defaultStart = Math.max(MIN_START, Math.floor(nowMinutes / 30) * 30 || 600)
+    }
+
     setModal({
       mode: 'add',
       draft: {
         type: 'task',
         title: '',
         description: '',
-        startStr: fmt24(Math.min(MIN_END - 30, Math.max(MIN_START, Math.floor(nowMinutes / 30) * 30 || 600))),
-        endStr: fmt24(Math.min(MIN_END, Math.max(MIN_START + 30, (Math.floor(nowMinutes / 30) * 30 || 600) + 30)))
+        startStr: fmt24(defaultStart),
+        endStr: fmt24(Math.min(MIN_END, defaultStart + 30))
       }
     })
   }
@@ -668,6 +678,41 @@ export default function TimelineView({
       await logUndo('update', { items: [{ id, title: prevTitle }] }, day)
     } catch (err) {
       console.error('Error updating title:', err)
+    }
+  }
+
+  // Duplicate Block
+  const handleDuplicateBlock = async (block: LocalBlock) => {
+    const tempId = crypto.randomUUID()
+    const newBlock: LocalBlock = {
+      ...block,
+      id: tempId,
+      completed: false,
+      completedAt: null,
+      sortOrder: blocks.length + 1
+    }
+    setBlocks(prev => [...prev, newBlock].sort((a, b) => a.startMin - b.startMin))
+    setDetailBlock(null)
+    showToast('Block duplicated')
+
+    try {
+      const startIso = new Date(`${day}T${fmt24(newBlock.startMin)}:00`).toISOString()
+      const endIso = new Date(`${day}T${fmt24(newBlock.endMin)}:00`).toISOString()
+      
+      const saved = await createItem({
+        id: tempId,
+        title: newBlock.title,
+        description: newBlock.description,
+        start_time: startIso,
+        end_time: endIso,
+        is_buffer: newBlock.type === 'buffer',
+        is_completed: false,
+        day
+      })
+      setBlocks(prev => prev.map(b => b.id === tempId ? { ...b, id: saved.id } : b))
+      await logUndo('create', { id: saved.id }, day)
+    } catch (err) {
+      console.error('Error duplicating item:', err)
     }
   }
 
@@ -925,12 +970,12 @@ export default function TimelineView({
           1. HEADER (EDGE-TO-EDGE, RESPONSIVE)
       ========================================================================== */}
       {/* Mobile Header (< md) */}
-      <header className="flex md:hidden w-full items-center justify-between px-3 py-2.5 sm:px-4 border-b border-[oklch(0.24_0.006_90)] bg-[oklch(0.18_0.006_90)] shrink-0 z-30">
+      <header className="relative flex md:hidden w-full items-center justify-between px-3 py-2.5 sm:px-4 border-b border-[oklch(0.24_0.006_90)] bg-[oklch(0.18_0.006_90)] shrink-0 z-30">
         <span className="font-bold text-[16px] tracking-tight text-[oklch(0.94_0.004_90)]">
           Lanner
         </span>
 
-        <div className="flex items-center gap-1.5">
+        <div className="absolute left-1/2 -translate-x-1/2 flex items-center gap-1.5">
           <button
             onClick={() => changeDate(-1)}
             className="w-7 h-7 rounded-lg border border-[oklch(0.3_0.006_90)] bg-[oklch(0.2_0.006_90)] text-[oklch(0.75_0.006_90)] text-sm flex items-center justify-center cursor-pointer"
@@ -972,7 +1017,7 @@ export default function TimelineView({
       </header>
 
       {/* Desktop Header (>= md) */}
-      <header className="hidden md:flex w-full items-center justify-between px-8 py-4 border-b border-[oklch(0.24_0.006_90)] bg-[oklch(0.18_0.006_90)] shrink-0 z-30">
+      <header className="relative hidden md:flex w-full items-center justify-between px-8 py-4 border-b border-[oklch(0.24_0.006_90)] bg-[oklch(0.18_0.006_90)] shrink-0 z-30">
         <div className="flex items-center gap-3">
           <span className="font-bold text-xl tracking-tight text-[oklch(0.94_0.004_90)]">
             Lanner
@@ -980,7 +1025,7 @@ export default function TimelineView({
         </div>
 
         {/* Center: Date Navigation */}
-        <div className="flex items-center gap-3">
+        <div className="absolute left-1/2 -translate-x-1/2 flex items-center gap-3">
           <button
             onClick={() => changeDate(-1)}
             className="w-8 h-8 rounded-lg border border-[oklch(0.3_0.006_90)] bg-[oklch(0.2_0.006_90)] text-[oklch(0.75_0.006_90)] text-base flex items-center justify-center hover:bg-[oklch(0.24_0.006_90)] cursor-pointer transition-colors"
@@ -1792,22 +1837,28 @@ export default function TimelineView({
             </div>
 
             {/* Consolidated Actions Footer: Edit & Delete */}
-            <div className="pt-3 border-t border-[oklch(0.26_0.006_90)] flex gap-2.5">
+            <div className="pt-3 border-t border-[oklch(0.26_0.006_90)] flex flex-wrap gap-2.5">
               <button
                 onClick={() => {
                   handleDeleteBlock(detailBlock.id)
                   setDetailBlock(null)
                 }}
-                className="flex-1 text-sm font-semibold border border-[oklch(0.35_0.02_25)] bg-[oklch(0.22_0.02_25)] text-[oklch(0.75_0.14_25)] rounded-xl py-3 px-4 cursor-pointer hover:bg-[oklch(0.26_0.02_25)] transition-colors"
+                className="flex-[1] min-w-[100px] text-sm font-semibold border border-[oklch(0.35_0.02_25)] bg-[oklch(0.22_0.02_25)] text-[oklch(0.75_0.14_25)] rounded-xl py-3 px-4 cursor-pointer hover:bg-[oklch(0.26_0.02_25)] transition-colors"
               >
-                Delete Block
+                Delete
+              </button>
+              <button
+                onClick={() => handleDuplicateBlock(detailBlock)}
+                className="flex-[1] min-w-[100px] text-sm font-semibold border border-[oklch(0.32_0.006_90)] bg-[oklch(0.23_0.006_90)] text-[oklch(0.9_0.004_90)] rounded-xl py-3 px-4 cursor-pointer hover:bg-[oklch(0.27_0.006_90)] transition-colors"
+              >
+                Duplicate
               </button>
               <button
                 onClick={() => {
                   openEdit(detailBlock)
                   setDetailBlock(null)
                 }}
-                className="flex-1 text-sm font-semibold border border-[oklch(0.32_0.006_90)] bg-[oklch(0.23_0.006_90)] text-[oklch(0.9_0.004_90)] rounded-xl py-3 px-4 cursor-pointer hover:bg-[oklch(0.27_0.006_90)] transition-colors"
+                className="flex-[1] min-w-[100px] text-sm font-semibold border border-[oklch(0.32_0.006_90)] bg-[oklch(0.23_0.006_90)] text-[oklch(0.9_0.004_90)] rounded-xl py-3 px-4 cursor-pointer hover:bg-[oklch(0.27_0.006_90)] transition-colors"
               >
                 Edit Details
               </button>
@@ -1843,6 +1894,21 @@ export default function TimelineView({
             {/* Settings content */}
             {panel === 'settings' && (
               <div>
+                <div className="mb-6 pb-5 border-b border-[oklch(0.26_0.006_90)]">
+                  <label className="block text-xs font-medium text-[oklch(0.6_0.006_90)] mb-2">
+                    Account
+                  </label>
+                  <div className="flex items-center gap-3 bg-[oklch(0.21_0.006_90)] border border-[oklch(0.32_0.006_90)] rounded-xl p-3">
+                    <div className="w-8 h-8 rounded-full bg-[oklch(0.28_0.006_90)] flex items-center justify-center text-[oklch(0.75_0.006_90)] font-semibold uppercase">
+                      {userEmail ? userEmail[0] : '?'}
+                    </div>
+                    <div className="flex flex-col">
+                      <span className="text-sm font-semibold text-[oklch(0.92_0.004_90)]">{userEmail || 'Not signed in'}</span>
+                      <span className="text-[10px] text-[oklch(0.55_0.006_90)]">Logged in</span>
+                    </div>
+                  </div>
+                </div>
+
                 <div className="mb-5">
                   <label className="block text-xs font-medium text-[oklch(0.6_0.006_90)] mb-2">
                     Timezone

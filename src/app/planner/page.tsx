@@ -45,6 +45,7 @@ export default async function PlannerPage(props: { searchParams: Promise<{ day?:
         day={day} 
         cascadePreference={cascadePreference}
         initialTimezone={timezone}
+        userEmail={data.user.email || ''}
       />
     </main>
   )
