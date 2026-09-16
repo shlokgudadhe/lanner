@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { format, differenceInMinutes, startOfDay, parseISO, isSameDay, addDays } from 'date-fns'
 import { PlannerItem } from '@/types'
@@ -322,8 +322,71 @@ export default function TimelineView({
     }
   }
 
-  // Pixels per minute based on screen size (1.2px/min on mobile, 1.6px/min on desktop)
-  const pxPerMin = (isMobile ? 72 : 96) / 60
+  // Flexible Timeline Scaling Engine
+  const hourScales = useMemo(() => {
+    const scales = new Array(24).fill(isMobile ? 1.2 : 1.6)
+    const defaultScale = isMobile ? 1.2 : 1.6
+    const minBlockHeight = 32
+
+    for (let h = 0; h < 24; h++) {
+      const startHourMin = h * 60
+      const endHourMin = startHourMin + 60
+      let minDur = 60
+      let hasBlocks = false
+
+      for (const b of blocks) {
+        if (b.startMin < endHourMin && b.endMin > startHourMin) {
+          const dur = b.endMin - b.startMin
+          if (dur < minDur) minDur = dur
+          hasBlocks = true
+        }
+      }
+
+      if (hasBlocks) {
+        minDur = Math.max(5, minDur)
+        const requiredScale = minBlockHeight / minDur
+        scales[h] = Math.max(defaultScale, requiredScale)
+      }
+    }
+    return scales
+  }, [blocks, isMobile])
+
+  const getOffsetForMinute = (min: number) => {
+    if (min <= MIN_START) return 0
+    let offset = 0
+    let m = MIN_START
+    while (m < min) {
+      const currentHour = Math.floor(m / 60)
+      const nextHourStart = (currentHour + 1) * 60
+      const end = Math.min(min, nextHourStart)
+      const scale = hourScales[currentHour] || (isMobile ? 1.2 : 1.6)
+      offset += (end - m) * scale
+      m = end
+    }
+    return offset
+  }
+
+  const getMinuteForOffset = (y: number) => {
+    if (y <= 0) return MIN_START
+    let currentY = 0
+    let m = MIN_START
+    while (m < MIN_END) {
+      const currentHour = Math.floor(m / 60)
+      const scale = hourScales[currentHour] || (isMobile ? 1.2 : 1.6)
+      const nextHourStart = (currentHour + 1) * 60
+      const minInSegment = nextHourStart - m
+      const segmentHeight = minInSegment * scale
+
+      if (currentY + segmentHeight >= y) {
+        const remainderY = y - currentY
+        return m + (remainderY / scale)
+      }
+      currentY += segmentHeight
+      m = nextHourStart
+    }
+    return MIN_END
+  }
+
   const gutterWidth = isMobile ? 54 : 68
   const blockRight = isMobile ? 8 : 20
 
@@ -331,7 +394,7 @@ export default function TimelineView({
   const targetDate = parseISO(day)
   const isToday = isSameDay(targetDate, now)
   const nowMinutes = differenceInMinutes(now, startOfDay(now))
-  const nowTop = (nowMinutes - MIN_START) * pxPerMin
+  const nowTop = getOffsetForMinute(nowMinutes)
   const dateLabel = format(targetDate, isMobile ? 'EEE, MMM d' : 'EEEE, MMMM do')
 
   const changeDate = (delta: number) => {
@@ -627,7 +690,9 @@ export default function TimelineView({
       if (Math.abs(ev.clientY - d.startY) > 3) {
         hasMovedRef.current = true
       }
-      const deltaMin = Math.round((ev.clientY - d.startY) / pxPerMin / SNAP_MINUTES) * SNAP_MINUTES
+      const targetY = getOffsetForMinute(d.origStart) + (ev.clientY - d.startY)
+      const rawMin = getMinuteForOffset(targetY)
+      const deltaMin = Math.round((rawMin - d.origStart) / SNAP_MINUTES) * SNAP_MINUTES
 
       setBlocks(prev =>
         prev.map(t => {
@@ -808,7 +873,7 @@ export default function TimelineView({
   // Hour grid lines (6 AM to 11 PM)
   const hourRows = []
   for (let h = 6; h <= 23; h++) {
-    const top = (h * 60 - MIN_START) * pxPerMin
+    const top = getOffsetForMinute(h * 60)
     hourRows.push({ label: fmt12h(h), top, labelTop: top + 4 })
   }
 
@@ -1039,7 +1104,7 @@ export default function TimelineView({
             ref={trackRef}
             className="w-full relative py-4"
             style={{
-              height: `${(MIN_END - MIN_START) * pxPerMin + 40}px`
+              height: `${getOffsetForMinute(MIN_END) + 40}px`
             }}
           >
             {/* Hour Grid Lines across full width */}
@@ -1102,11 +1167,11 @@ export default function TimelineView({
 
             {/* Blocks spanning from gutter to device edge */}
             {blocks.map(b => {
-              const top = (b.startMin - MIN_START) * pxPerMin
+              const top = getOffsetForMinute(b.startMin)
               const durationMin = b.endMin - b.startMin
-              const naturalHeight = durationMin * pxPerMin
-              // Minimum block height floor of 32px
-              const height = Math.max(32, naturalHeight)
+              const naturalHeight = getOffsetForMinute(b.endMin) - top
+              // Minimum block height floor of 32px is now guaranteed by the scale engine!
+              const height = naturalHeight
               const isSmall = durationMin < 20 || height < 40
               const timeLabel = `${fmt24(b.startMin)}–${fmt24(b.endMin)}`
 
@@ -1139,15 +1204,6 @@ export default function TimelineView({
                     }}
                   >
                     <div className="flex items-center gap-2 w-full h-full px-2.5 overflow-hidden">
-                      {/* Grip handle */}
-                      <div
-                        onPointerDown={e => startDrag('move', b, e)}
-                        className="cursor-grab flex-shrink-0 opacity-40 group-hover:opacity-100 transition-opacity"
-                        title="Drag to move"
-                      >
-                        <span className="text-[10px] text-[oklch(0.55_0.006_90)] font-mono">⋮⋮</span>
-                      </div>
-
                       {/* Buffer Checkbox */}
                       <button
                         onClick={e => {
@@ -1192,6 +1248,15 @@ export default function TimelineView({
                       >
                         buffer · {timeLabel}
                       </span>
+
+                      {/* Grip handle */}
+                      <div
+                        onPointerDown={e => startDrag('move', b, e)}
+                        className="cursor-grab flex-shrink-0 opacity-30 hover:opacity-100 transition-opacity p-1.5 -mr-1 rounded-md hover:bg-[oklch(0.4_0.006_90/0.2)] flex items-center justify-center"
+                        title="Drag to move"
+                      >
+                        <span className="text-[14px] text-[oklch(0.65_0.006_90)] font-bold tracking-tight" style={{ letterSpacing: '-0.1em' }}>⋮⋮</span>
+                      </div>
                     </div>
 
                     {/* Resize Handle */}
@@ -1241,15 +1306,6 @@ export default function TimelineView({
                   {isSmall ? (
                     /* Compact Single-Line Layout for short duration tasks */
                     <div className="flex items-center gap-2 w-full h-full px-2.5 overflow-hidden">
-                      {/* Grip Handle */}
-                      <div
-                        onPointerDown={e => startDrag('move', b, e)}
-                        className="cursor-grab flex-shrink-0 opacity-40 group-hover:opacity-100 transition-opacity"
-                        title="Drag to move"
-                      >
-                        <span className="text-[10px] text-[oklch(0.55_0.006_90)] font-mono">⋮⋮</span>
-                      </div>
-
                       {/* Checkbox */}
                       <button
                         onClick={e => {
@@ -1303,20 +1359,20 @@ export default function TimelineView({
                           title="Conflict overlap detected"
                         />
                       )}
+
+                      {/* Grip Handle */}
+                      <div
+                        onPointerDown={e => startDrag('move', b, e)}
+                        className="cursor-grab flex-shrink-0 opacity-30 hover:opacity-100 transition-opacity p-1.5 -mr-1 rounded-md hover:bg-[oklch(0.4_0.006_90/0.2)] flex items-center justify-center ml-auto"
+                        title="Drag to move"
+                      >
+                        <span className="text-[14px] text-[oklch(0.65_0.006_90)] font-bold tracking-tight" style={{ letterSpacing: '-0.1em' }}>⋮⋮</span>
+                      </div>
                     </div>
                   ) : (
                     /* Full Card Layout for standard duration blocks */
                     <div className="flex flex-col justify-center h-full px-3 py-1 gap-1 overflow-hidden">
                       <div className="flex items-center gap-2">
-                        {/* Grip Handle */}
-                        <div
-                          onPointerDown={e => startDrag('move', b, e)}
-                          className="cursor-grab flex-shrink-0 opacity-40 group-hover:opacity-100 transition-opacity"
-                          title="Drag to move"
-                        >
-                          <span className="text-[11px] text-[oklch(0.55_0.006_90)] font-mono">⋮⋮</span>
-                        </div>
-
                         {/* Checkbox */}
                         <button
                           onClick={e => {
@@ -1360,9 +1416,18 @@ export default function TimelineView({
                             title="Conflict overlap detected"
                           />
                         )}
+
+                        {/* Grip Handle */}
+                        <div
+                          onPointerDown={e => startDrag('move', b, e)}
+                          className="cursor-grab flex-shrink-0 opacity-30 hover:opacity-100 transition-opacity p-1.5 -mr-1.5 rounded-md hover:bg-[oklch(0.4_0.006_90/0.2)] flex items-center justify-center ml-auto"
+                          title="Drag to move"
+                        >
+                          <span className="text-[15px] text-[oklch(0.65_0.006_90)] font-bold tracking-tight" style={{ letterSpacing: '-0.1em' }}>⋮⋮</span>
+                        </div>
                       </div>
 
-                      <div className="flex items-center gap-2 pl-6">
+                      <div className="flex items-center gap-2 pl-7">
                         <span
                           style={{ fontFamily: "'JetBrains Mono', monospace" }}
                           className="text-[10.5px] text-[oklch(0.56_0.006_90)] tracking-wide flex-shrink-0"
