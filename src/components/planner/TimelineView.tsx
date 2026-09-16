@@ -1152,6 +1152,12 @@ export default function TimelineView({
               height: `${getOffsetForMinute(MIN_END) + 40}px`
             }}
           >
+            {/* Touch Action Blocker for the entire right side (prevents scrolling the main page) */}
+            <div 
+              className="absolute top-0 bottom-0 right-0 z-0"
+              style={{ left: gutterWidth, touchAction: 'none' }}
+            />
+
             {/* Hour Grid Lines across full width */}
             {hourRows.map(row => (
               <React.Fragment key={row.label}>
@@ -1245,7 +1251,8 @@ export default function TimelineView({
                       overflow: 'hidden',
                       cursor: 'pointer',
                       opacity: b.completed ? 0.5 : 1,
-                      zIndex: draggingId === b.id ? 20 : 3
+                      zIndex: draggingId === b.id ? 20 : 3,
+                      touchAction: 'none'
                     }}
                   >
                     <div className="flex items-center gap-2 w-full h-full px-2.5 overflow-hidden">
@@ -1345,7 +1352,8 @@ export default function TimelineView({
                     transition: dragging ? 'none' : 'background 0.15s',
                     boxShadow: dragging ? '0 18px 30px -10px rgba(0,0,0,0.55)' : 'none',
                     opacity: dragging ? 0.88 : b.completed ? 0.55 : 1,
-                    zIndex: dragging ? 20 : 3
+                    zIndex: dragging ? 20 : 3,
+                    touchAction: 'none'
                   }}
                 >
                   {isSmall ? (
