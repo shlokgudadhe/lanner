@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect, useRef, useMemo } from 'react'
+import React, { useState, useEffect, useRef, useMemo, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { format, differenceInMinutes, startOfDay, parseISO, isSameDay, addDays } from 'date-fns'
 import { PlannerItem } from '@/types'
@@ -263,7 +263,12 @@ export default function TimelineView({
 
   // Handle undo (reverts from DB atomic undo_log and updates local state)
   const handleUndo = async () => {
+    setDetailBlock(null)
+    setModal(null)
+    setCascadePrompt(null)
+    
     try {
+      showToast('Undoing...')
       const res = await performUndo()
       if (!res.success) {
         showToast('Nothing to undo')
@@ -272,7 +277,9 @@ export default function TimelineView({
 
       // If action was on another day, navigate there
       if (res.day && res.day !== day) {
-        router.push(`/planner?day=${res.day}`)
+        startTransition(() => {
+          router.push(`/planner?day=${res.day}`)
+        })
         showToast('Reverted action on ' + res.day)
         return
       }
@@ -318,8 +325,11 @@ export default function TimelineView({
 
       setCascadePrompt(null)
       showToast('Action undone')
-    } catch (e) {
-      console.error('Undo error:', e)
+      startTransition(() => {
+        router.refresh()
+      })
+    } catch (err) {
+      console.error('Error in handleUndo:', err)
       showToast('Failed to undo')
     }
   }
@@ -399,15 +409,28 @@ export default function TimelineView({
   const nowTop = getOffsetForMinute(nowMinutes)
   const dateLabel = format(targetDate, isMobile ? 'EEE, MMM d' : 'EEEE, MMMM do')
 
+  const [isPending, startTransition] = useTransition()
+
   const changeDate = (delta: number) => {
     const next = addDays(targetDate, delta)
     const nextStr = format(next, 'yyyy-MM-dd')
-    router.push(`/planner?day=${nextStr}`)
+    startTransition(() => {
+      router.push(`/planner?day=${nextStr}`)
+    })
+  }
+
+  const goDate = (dateStr: string) => {
+    if (!dateStr) return
+    startTransition(() => {
+      router.push(`/planner?day=${dateStr}`)
+    })
   }
 
   const goToday = () => {
     const todayStr = format(new Date(), 'yyyy-MM-dd')
-    router.push(`/planner?day=${todayStr}`)
+    startTransition(() => {
+      router.push(`/planner?day=${todayStr}`)
+    })
   }
 
   // Toggle complete
@@ -683,10 +706,29 @@ export default function TimelineView({
 
   // Duplicate Block
   const handleDuplicateBlock = async (block: LocalBlock) => {
+    const duration = block.endMin - block.startMin
+    let nextStart = block.endMin
+    
+    const sorted = [...blocks].sort((a, b) => a.startMin - b.startMin)
+    for (let i = 0; i < sorted.length; i++) {
+      if (sorted[i].startMin >= nextStart) {
+        if (sorted[i].startMin - nextStart >= duration) {
+          break // Found a gap!
+        }
+        nextStart = Math.max(nextStart, sorted[i].endMin)
+      }
+    }
+
+    if (nextStart + duration > MIN_END) {
+      nextStart = block.endMin
+    }
+
     const tempId = crypto.randomUUID()
     const newBlock: LocalBlock = {
       ...block,
       id: tempId,
+      startMin: nextStart,
+      endMin: nextStart + duration,
       completed: false,
       completedAt: null,
       sortOrder: blocks.length + 1
@@ -972,7 +1014,7 @@ export default function TimelineView({
       {/* Mobile Header (< md) */}
       <header className="relative flex md:hidden w-full items-center justify-between px-3 py-2.5 sm:px-4 border-b border-[oklch(0.24_0.006_90)] bg-[oklch(0.18_0.006_90)] shrink-0 z-30">
         <span className="font-bold text-[16px] tracking-tight text-[oklch(0.94_0.004_90)]">
-          Lanner
+          LockIn
         </span>
 
         <div className="absolute left-1/2 -translate-x-1/2 flex items-center gap-1.5">
@@ -982,13 +1024,20 @@ export default function TimelineView({
           >
             ‹
           </button>
-          <div className="text-center min-w-[96px]">
-            <div className="font-semibold text-[13px] text-[oklch(0.92_0.004_90)]">{dateLabel}</div>
+          <div className="text-center min-w-[96px] relative cursor-pointer group">
+            <div className="font-semibold text-[13px] text-[oklch(0.92_0.004_90)] group-hover:text-white transition-colors">{dateLabel}</div>
             {isToday && (
               <div className="font-mono text-[10px] text-[#d9a441] leading-none">
                 now {format(now, 'HH:mm')}
               </div>
             )}
+            {isPending && <div className="absolute -bottom-3 left-1/2 -translate-x-1/2 w-4 h-0.5 bg-[oklch(0.72_0.006_90)] rounded-full animate-pulse" />}
+            <input 
+              type="date"
+              value={format(targetDate, 'yyyy-MM-dd')}
+              onChange={e => goDate(e.target.value)}
+              className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+            />
           </div>
           <button
             onClick={() => changeDate(1)}
@@ -1020,7 +1069,7 @@ export default function TimelineView({
       <header className="relative hidden md:flex w-full items-center justify-between px-8 py-4 border-b border-[oklch(0.24_0.006_90)] bg-[oklch(0.18_0.006_90)] shrink-0 z-30">
         <div className="flex items-center gap-3">
           <span className="font-bold text-xl tracking-tight text-[oklch(0.94_0.004_90)]">
-            Lanner
+            LockIn
           </span>
         </div>
 
@@ -1032,11 +1081,18 @@ export default function TimelineView({
           >
             ‹
           </button>
-          <div className="text-center min-w-[170px]">
-            <div className="font-semibold text-[15px] text-[oklch(0.94_0.004_90)]">{dateLabel}</div>
-            <div className="font-mono text-[11px] text-[#d9a441] tracking-wide">
+          <div className="text-center min-w-[170px] relative cursor-pointer group">
+            <div className="font-semibold text-[15px] text-[oklch(0.94_0.004_90)] group-hover:text-white transition-colors">{dateLabel}</div>
+            <div className="font-mono text-[11px] text-[#d9a441] tracking-wide h-[16px]">
               {isToday ? 'now ' + format(now, 'HH:mm') : ''}
             </div>
+            {isPending && <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-6 h-0.5 bg-[oklch(0.72_0.006_90)] rounded-full animate-pulse" />}
+            <input 
+              type="date"
+              value={format(targetDate, 'yyyy-MM-dd')}
+              onChange={e => goDate(e.target.value)}
+              className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+            />
           </div>
           <button
             onClick={() => changeDate(1)}
@@ -1152,11 +1208,7 @@ export default function TimelineView({
               height: `${getOffsetForMinute(MIN_END) + 40}px`
             }}
           >
-            {/* Touch Action Blocker for the entire right side (prevents scrolling the main page) */}
-            <div 
-              className="absolute top-0 bottom-0 right-0 z-0"
-              style={{ left: gutterWidth, touchAction: 'none' }}
-            />
+
 
             {/* Hour Grid Lines across full width */}
             {hourRows.map(row => (
@@ -1251,8 +1303,7 @@ export default function TimelineView({
                       overflow: 'hidden',
                       cursor: 'pointer',
                       opacity: b.completed ? 0.5 : 1,
-                      zIndex: draggingId === b.id ? 20 : 3,
-                      touchAction: 'none'
+                      zIndex: draggingId === b.id ? 20 : 3
                     }}
                   >
                     <div className="flex items-center gap-2 w-full h-full px-2.5 overflow-hidden">
@@ -1304,18 +1355,20 @@ export default function TimelineView({
                       {/* Grip handle */}
                       <div
                         onPointerDown={e => startDrag('move', b, e)}
-                        className="cursor-grab flex-shrink-0 opacity-30 hover:opacity-100 transition-opacity p-1.5 -mr-1 rounded-md hover:bg-[oklch(0.4_0.006_90/0.2)] flex items-center justify-center"
+                        className="cursor-grab flex-shrink-0 opacity-40 hover:opacity-100 transition-opacity p-2 -mr-1 rounded-md hover:bg-[oklch(0.4_0.006_90/0.2)] flex items-center justify-center"
                         title="Drag to move"
+                        style={{ touchAction: 'none' }}
                       >
-                        <span className="text-[14px] text-[oklch(0.65_0.006_90)] font-bold tracking-tight" style={{ letterSpacing: '-0.1em' }}>⋮⋮</span>
+                        <span className="text-[18px] text-[oklch(0.65_0.006_90)] font-bold tracking-tight" style={{ letterSpacing: '-0.15em' }}>⋮⋮</span>
                       </div>
                     </div>
 
                     {/* Resize Handle */}
                     <div
                       onPointerDown={e => startDrag('resize', b, e)}
-                      className="absolute left-1/2 -translate-x-1/2 bottom-0 w-10 h-2 cursor-ns-resize opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center z-10"
+                      className="absolute left-1/2 -translate-x-1/2 bottom-0 w-12 h-3 cursor-ns-resize opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center z-10"
                       title="Drag to resize"
+                      style={{ touchAction: 'none' }}
                     >
                       <div className="w-5 h-0.5 rounded-full bg-[oklch(0.5_0.006_90)]" />
                     </div>
@@ -1352,8 +1405,7 @@ export default function TimelineView({
                     transition: dragging ? 'none' : 'background 0.15s',
                     boxShadow: dragging ? '0 18px 30px -10px rgba(0,0,0,0.55)' : 'none',
                     opacity: dragging ? 0.88 : b.completed ? 0.55 : 1,
-                    zIndex: dragging ? 20 : 3,
-                    touchAction: 'none'
+                    zIndex: dragging ? 20 : 3
                   }}
                 >
                   {isSmall ? (
@@ -1416,10 +1468,11 @@ export default function TimelineView({
                       {/* Grip Handle */}
                       <div
                         onPointerDown={e => startDrag('move', b, e)}
-                        className="cursor-grab flex-shrink-0 opacity-30 hover:opacity-100 transition-opacity p-1.5 -mr-1 rounded-md hover:bg-[oklch(0.4_0.006_90/0.2)] flex items-center justify-center ml-auto"
+                        className="cursor-grab flex-shrink-0 opacity-40 hover:opacity-100 transition-opacity p-2 -mr-1 rounded-md hover:bg-[oklch(0.4_0.006_90/0.2)] flex items-center justify-center ml-auto"
                         title="Drag to move"
+                        style={{ touchAction: 'none' }}
                       >
-                        <span className="text-[14px] text-[oklch(0.65_0.006_90)] font-bold tracking-tight" style={{ letterSpacing: '-0.1em' }}>⋮⋮</span>
+                        <span className="text-[18px] text-[oklch(0.65_0.006_90)] font-bold tracking-tight" style={{ letterSpacing: '-0.15em' }}>⋮⋮</span>
                       </div>
                     </div>
                   ) : (
@@ -1473,10 +1526,11 @@ export default function TimelineView({
                         {/* Grip Handle */}
                         <div
                           onPointerDown={e => startDrag('move', b, e)}
-                          className="cursor-grab flex-shrink-0 opacity-30 hover:opacity-100 transition-opacity p-1.5 -mr-1.5 rounded-md hover:bg-[oklch(0.4_0.006_90/0.2)] flex items-center justify-center ml-auto"
+                          className="cursor-grab flex-shrink-0 opacity-40 hover:opacity-100 transition-opacity p-2.5 -mr-2 rounded-md hover:bg-[oklch(0.4_0.006_90/0.2)] flex items-center justify-center ml-auto"
                           title="Drag to move"
+                          style={{ touchAction: 'none' }}
                         >
-                          <span className="text-[15px] text-[oklch(0.65_0.006_90)] font-bold tracking-tight" style={{ letterSpacing: '-0.1em' }}>⋮⋮</span>
+                          <span className="text-[20px] text-[oklch(0.65_0.006_90)] font-bold tracking-tight" style={{ letterSpacing: '-0.15em' }}>⋮⋮</span>
                         </div>
                       </div>
 
@@ -1499,8 +1553,9 @@ export default function TimelineView({
                   {/* Resize Handle at Bottom */}
                   <div
                     onPointerDown={e => startDrag('resize', b, e)}
-                    className="absolute left-1/2 -translate-x-1/2 bottom-0 w-10 h-2 cursor-ns-resize opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center z-10"
+                    className="absolute left-1/2 -translate-x-1/2 bottom-0 w-12 h-3 cursor-ns-resize opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center z-10"
                     title="Drag to resize"
+                    style={{ touchAction: 'none' }}
                   >
                     <div className="w-5 h-0.5 rounded-full bg-[oklch(0.5_0.006_90)]" />
                   </div>
@@ -1940,7 +1995,7 @@ export default function TimelineView({
                     Cascade behavior
                   </label>
                   <div className="text-xs text-[oklch(0.55_0.006_90)] mb-3 leading-relaxed">
-                    When moving a block pushes it into the next one, should Lanner offer to shift the rest of your day too?
+                    When moving a block pushes it into the next one, should LockIn offer to shift the rest of your day too?
                   </div>
                   <div className="flex bg-[oklch(0.21_0.006_90)] border border-[oklch(0.3_0.006_90)] rounded-xl p-1 gap-1">
                     <button

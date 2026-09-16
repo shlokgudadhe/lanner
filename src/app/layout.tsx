@@ -15,7 +15,7 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Lanner — Day Planner",
+  title: "LockIn — Day Planner",
   description: "A thoughtful time-based day planner.",
 };
 
