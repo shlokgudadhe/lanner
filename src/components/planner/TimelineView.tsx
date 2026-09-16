@@ -484,7 +484,7 @@ export default function TimelineView({
       const isBuffer = draft.type === 'buffer'
       const title = isBuffer ? (draft.title.trim() || 'Buffer') : (draft.title.trim() || 'Untitled')
 
-      const tempId = 'temp-' + Date.now()
+      const tempId = crypto.randomUUID()
       const newBlock: LocalBlock = {
         id: tempId,
         type: draft.type,
@@ -501,6 +501,7 @@ export default function TimelineView({
 
       try {
         const saved = await createItem({
+          id: tempId,
           title,
           description,
           start_time: startIso,

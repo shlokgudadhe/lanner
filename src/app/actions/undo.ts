@@ -104,7 +104,6 @@ export async function performUndo(): Promise<{
     // 3. Delete the used log entry
     await supabase.from('undo_log').delete().eq('id', lastLog.id)
 
-    revalidatePath('/planner')
     return {
       success: true,
       day: targetDay,

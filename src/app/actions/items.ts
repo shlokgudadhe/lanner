@@ -69,7 +69,6 @@ export async function createItem(item: Partial<PlannerItem>) {
     console.error('Insert error:', error)
     throw new Error(`Supabase Error: ${error.message} - ${error.details} - ${error.hint}`)
   }
-  revalidatePath('/planner')
   return data as PlannerItem
 }
 
@@ -101,7 +100,6 @@ export async function updateItem(id: string, updates: Partial<PlannerItem>) {
     console.error('Update error:', error)
     throw new Error(`Supabase Error: ${error.message} - ${error.details} - ${error.hint}`)
   }
-  revalidatePath('/planner')
   return data as PlannerItem
 }
 
@@ -119,5 +117,4 @@ export async function cascadeShiftItems(day: string, pivotSortOrder: number, del
   })
   
   if (error) throw error
-  revalidatePath('/planner')
 }
