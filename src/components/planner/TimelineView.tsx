@@ -124,6 +124,14 @@ export default function TimelineView({
     resizeGrabOffset: number
   } | null>(null)
   const hasMovedRef = useRef<boolean>(false)
+  
+  const pendingMutationsRef = useRef<Set<string>>(new Set())
+  const lockMutation = (id: string) => {
+    pendingMutationsRef.current.add(id)
+    setTimeout(() => {
+      pendingMutationsRef.current.delete(id)
+    }, 2000)
+  }
 
   const trackRef = useRef<HTMLDivElement>(null)
 
@@ -217,6 +225,8 @@ export default function TimelineView({
               }
             } else if (payload.eventType === 'UPDATE') {
               const updatedItem = payload.new as PlannerItem
+              if (pendingMutationsRef.current.has(updatedItem.id)) return // Ignore echo for local mutations
+              
               if (updatedItem.is_deleted) {
                 setBlocks(prev => prev.filter(b => b.id !== updatedItem.id))
               } else {
@@ -321,6 +331,7 @@ export default function TimelineView({
         setBlocks(prev => {
           let updatedList = [...prev]
           for (const item of res.revertedItems!) {
+            lockMutation(item.id)
             if (item.is_deleted) {
               updatedList = updatedList.filter(b => b.id !== item.id)
             } else {
@@ -475,6 +486,7 @@ export default function TimelineView({
 
     setBlocks(prev => prev.map(b => b.id === id ? { ...b, completed: nextCompleted, completedAt: nextCompletedAt } : b))
 
+    lockMutation(id)
     try {
       await updateItem(id, { is_completed: nextCompleted, completed_at: nextCompletedAt })
       await logUndo('update', { items: [{ id, is_completed: target.completed, completed_at: target.completedAt }] }, day)
@@ -543,6 +555,8 @@ export default function TimelineView({
     const startIso2 = new Date(`${day}T${fmt24(newStart2)}:00`).toISOString()
     const endIso2 = new Date(`${day}T${fmt24(newEnd2)}:00`).toISOString()
 
+    lockMutation(b1.id)
+    lockMutation(b2.id)
     try {
       await Promise.all([
         updateItem(b1.id, { start_time: startIso1, end_time: endIso1 }),
@@ -669,6 +683,7 @@ export default function TimelineView({
       setModal(null)
       showToast('Block updated')
 
+      lockMutation(id)
       try {
         await updateItem(id, {
           title,
@@ -689,8 +704,10 @@ export default function TimelineView({
     if (!target) return
     const newTitle = target.title === 'Buffer' || !target.title.trim() ? 'Task' : target.title
     setBlocks(prev => prev.map(b => b.id === id ? { ...b, type: 'task', title: newTitle } : b))
+    setDetailBlock(prev => prev ? { ...prev, type: 'task', title: newTitle } : null)
     showToast('Converted to task')
 
+    lockMutation(id)
     try {
       await updateItem(id, { is_buffer: false, title: newTitle })
       await logUndo('update', { items: [{ id, is_buffer: true, title: target.title }] }, day)
@@ -708,7 +725,9 @@ export default function TimelineView({
 
     const prevDesc = target.description || null
     setBlocks(prev => prev.map(b => b.id === id ? { ...b, description: trimmed } : b))
+    setDetailBlock(prev => prev ? { ...prev, description: trimmed } : null)
 
+    lockMutation(id)
     try {
       await updateItem(id, { description: trimmed })
       await logUndo('update', { items: [{ id, description: prevDesc }] }, day)
@@ -727,7 +746,9 @@ export default function TimelineView({
 
     const prevTitle = target.title
     setBlocks(prev => prev.map(b => b.id === id ? { ...b, title: trimmed } : b))
+    setDetailBlock(prev => prev ? { ...prev, title: trimmed } : null)
 
+    lockMutation(id)
     try {
       await updateItem(id, { title: trimmed })
       await logUndo('update', { items: [{ id, title: prevTitle }] }, day)
@@ -952,6 +973,7 @@ export default function TimelineView({
         } = sideEffectData
 
         // Sync moved item to Supabase
+        lockMutation(moved.id)
         updateItem(moved.id, { start_time: startIso, end_time: endIso }).catch(console.error)
 
         if (pushChain.length > 0 || fillChain.length > 0) {
@@ -1003,6 +1025,7 @@ export default function TimelineView({
       if (item) {
         const startIso = new Date(`${day}T${fmt24(item.startMin)}:00`).toISOString()
         const endIso = new Date(`${day}T${fmt24(item.endMin)}:00`).toISOString()
+        lockMutation(id)
         updateItem(id, { start_time: startIso, end_time: endIso }).catch(console.error)
       }
     }
