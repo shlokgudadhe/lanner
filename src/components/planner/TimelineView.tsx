@@ -435,7 +435,10 @@ export default function TimelineView({
   const nowTop = getOffsetForMinute(nowMinutes)
   const dateLabel = format(targetDate, isMobile ? 'EEE, MMM d' : 'EEEE, MMMM do')
 
+  const dateInputRef = useRef<HTMLInputElement>(null)
+  
   const [isPending, startTransition] = useTransition()
+  const isNavigating = isPending || optimisticDay !== day
 
   const changeDate = (delta: number) => {
     const next = addDays(targetDate, delta)
@@ -1079,15 +1082,27 @@ export default function TimelineView({
           >
             ‹
           </button>
-          <div className="text-center min-w-[96px] relative cursor-pointer group">
+          <div 
+            className="text-center min-w-[96px] relative cursor-pointer group"
+            onClick={() => {
+              if (dateInputRef.current && 'showPicker' in dateInputRef.current) {
+                try {
+                  dateInputRef.current.showPicker()
+                } catch (e) {
+                  console.error(e)
+                }
+              }
+            }}
+          >
             <div className="font-semibold text-[13px] text-[oklch(0.92_0.004_90)] group-hover:text-white transition-colors">{dateLabel}</div>
             {isToday && (
               <div className="font-mono text-[10px] text-[#d9a441] leading-none">
                 now {format(now, 'HH:mm')}
               </div>
             )}
-            {isPending && <div className="absolute -bottom-3 left-1/2 -translate-x-1/2 w-4 h-0.5 bg-[oklch(0.72_0.006_90)] rounded-full animate-pulse" />}
+            {isNavigating && <div className="absolute -bottom-3 left-1/2 -translate-x-1/2 w-4 h-0.5 bg-[oklch(0.72_0.006_90)] rounded-full animate-pulse" />}
             <input 
+              ref={dateInputRef}
               type="date"
               value={format(targetDate, 'yyyy-MM-dd')}
               onChange={e => goDate(e.target.value)}
@@ -1136,13 +1151,25 @@ export default function TimelineView({
           >
             ‹
           </button>
-          <div className="text-center min-w-[170px] relative cursor-pointer group">
+          <div 
+            className="text-center min-w-[170px] relative cursor-pointer group"
+            onClick={() => {
+              if (dateInputRef.current && 'showPicker' in dateInputRef.current) {
+                try {
+                  dateInputRef.current.showPicker()
+                } catch (e) {
+                  console.error(e)
+                }
+              }
+            }}
+          >
             <div className="font-semibold text-[15px] text-[oklch(0.94_0.004_90)] group-hover:text-white transition-colors">{dateLabel}</div>
             <div className="font-mono text-[11px] text-[#d9a441] tracking-wide h-[16px]">
               {isToday ? 'now ' + format(now, 'HH:mm') : ''}
             </div>
-            {isPending && <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-6 h-0.5 bg-[oklch(0.72_0.006_90)] rounded-full animate-pulse" />}
+            {isNavigating && <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-6 h-0.5 bg-[oklch(0.72_0.006_90)] rounded-full animate-pulse" />}
             <input 
+              ref={dateInputRef}
               type="date"
               value={format(targetDate, 'yyyy-MM-dd')}
               onChange={e => goDate(e.target.value)}
@@ -1324,7 +1351,7 @@ export default function TimelineView({
             )}
 
             {/* Blocks spanning from gutter to device edge */}
-            {blocks.map(b => {
+            {(!isNavigating ? blocks : []).map(b => {
               const top = getOffsetForMinute(b.startMin)
               const durationMin = b.endMin - b.startMin
               const naturalHeight = getOffsetForMinute(b.endMin) - top
