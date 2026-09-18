@@ -61,6 +61,19 @@ export default function TimelineView({
   const [isMobile, setIsMobile] = useState(false)
 
   // Local state for planner blocks
+  const [optimisticDay, setOptimisticDay] = useState(day)
+
+  useEffect(() => {
+    setOptimisticDay(day)
+  }, [day])
+
+  useEffect(() => {
+    const nextStr = format(addDays(parseISO(day), 1), 'yyyy-MM-dd')
+    const prevStr = format(addDays(parseISO(day), -1), 'yyyy-MM-dd')
+    router.prefetch(`/planner?day=${nextStr}`)
+    router.prefetch(`/planner?day=${prevStr}`)
+  }, [day, router])
+
   const [blocks, setBlocks] = useState<LocalBlock[]>([])
   const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null)
   const [detailBlock, setDetailBlock] = useState<LocalBlock | null>(null)
@@ -422,7 +435,7 @@ export default function TimelineView({
   const blockRight = isMobile ? 8 : 20
 
   // Date helpers
-  const targetDate = parseISO(day)
+  const targetDate = parseISO(optimisticDay)
   const isToday = isSameDay(targetDate, now)
   const nowMinutes = differenceInMinutes(now, startOfDay(now))
   const nowTop = getOffsetForMinute(nowMinutes)
@@ -433,6 +446,7 @@ export default function TimelineView({
   const changeDate = (delta: number) => {
     const next = addDays(targetDate, delta)
     const nextStr = format(next, 'yyyy-MM-dd')
+    setOptimisticDay(nextStr)
     startTransition(() => {
       router.push(`/planner?day=${nextStr}`)
     })
@@ -440,6 +454,7 @@ export default function TimelineView({
 
   const goDate = (dateStr: string) => {
     if (!dateStr) return
+    setOptimisticDay(dateStr)
     startTransition(() => {
       router.push(`/planner?day=${dateStr}`)
     })
@@ -447,6 +462,7 @@ export default function TimelineView({
 
   const goToday = () => {
     const todayStr = format(new Date(), 'yyyy-MM-dd')
+    setOptimisticDay(todayStr)
     startTransition(() => {
       router.push(`/planner?day=${todayStr}`)
     })
@@ -1026,7 +1042,7 @@ export default function TimelineView({
   })
 
   return (
-    <div className="w-full h-full flex flex-col bg-[oklch(0.16_0.006_90)] text-[oklch(0.92_0.004_90)] overflow-hidden font-sans select-none">
+    <div className="fixed inset-0 flex flex-col bg-[oklch(0.16_0.006_90)] text-[oklch(0.92_0.004_90)] overflow-hidden font-sans select-none">
       {/* =========================================================================
           1. HEADER (EDGE-TO-EDGE, RESPONSIVE)
       ========================================================================== */}

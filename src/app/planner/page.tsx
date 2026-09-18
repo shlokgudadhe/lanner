@@ -39,7 +39,7 @@ export default async function PlannerPage(props: { searchParams: Promise<{ day?:
   const items = await getItems(day)
 
   return (
-    <main className="h-dvh w-full flex flex-col bg-[oklch(0.16_0.006_90)] text-[oklch(0.92_0.004_90)] overflow-hidden m-0 p-0">
+    <main className="fixed inset-0 w-full flex flex-col bg-[oklch(0.16_0.006_90)] text-[oklch(0.92_0.004_90)] overflow-hidden m-0 p-0">
       <TimelineView 
         initialItems={items} 
         day={day} 
