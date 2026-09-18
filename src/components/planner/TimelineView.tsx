@@ -120,6 +120,8 @@ export default function TimelineView({
     startY: number
     origStart: number
     origEnd: number
+    grabOffset: number
+    resizeGrabOffset: number
   } | null>(null)
   const hasMovedRef = useRef<boolean>(false)
 
@@ -371,8 +373,6 @@ export default function TimelineView({
       let hasBlocks = false
 
       for (const b of blocks) {
-        if (b.id === draggingId) continue // Prevent infinite scaling loops during drag
-
         if (b.startMin < endHourMin && b.endMin > startHourMin) {
           const dur = b.endMin - b.startMin
           if (dur < minDur) minDur = dur
@@ -387,7 +387,7 @@ export default function TimelineView({
       }
     }
     return scales
-  }, [blocks, isMobile, draggingId])
+  }, [blocks, isMobile])
 
   const getOffsetForMinute = (min: number) => {
     if (min <= MIN_START) return 0
@@ -795,12 +795,18 @@ export default function TimelineView({
     e.stopPropagation()
     hasMovedRef.current = false
 
+    const trackTop = trackRef.current?.getBoundingClientRect().top || 0
+    const blockTop = getOffsetForMinute(block.startMin)
+    const blockBottom = getOffsetForMinute(block.endMin)
+
     dragRef.current = {
       mode,
       id: block.id,
       startY: e.clientY,
       origStart: block.startMin,
-      origEnd: block.endMin
+      origEnd: block.endMin,
+      grabOffset: (e.clientY - trackTop) - blockTop,
+      resizeGrabOffset: (e.clientY - trackTop) - blockBottom
     }
 
     const onPointerMove = (ev: PointerEvent) => {
@@ -809,9 +815,18 @@ export default function TimelineView({
       if (Math.abs(ev.clientY - d.startY) > 3) {
         hasMovedRef.current = true
       }
-      const targetY = getOffsetForMinute(d.origStart) + (ev.clientY - d.startY)
-      const rawMin = getMinuteForOffset(targetY)
-      const deltaMin = Math.round((rawMin - d.origStart) / SNAP_MINUTES) * SNAP_MINUTES
+      const trackTop = trackRef.current?.getBoundingClientRect().top || 0
+      
+      let deltaMin = 0
+      if (d.mode === 'move') {
+        const targetY = (ev.clientY - trackTop) - d.grabOffset
+        const rawMin = getMinuteForOffset(targetY)
+        deltaMin = Math.round((rawMin - d.origStart) / SNAP_MINUTES) * SNAP_MINUTES
+      } else {
+        const targetY = (ev.clientY - trackTop) - d.resizeGrabOffset
+        const rawMin = getMinuteForOffset(targetY)
+        deltaMin = Math.round((rawMin - d.origEnd) / SNAP_MINUTES) * SNAP_MINUTES
+      }
 
       setBlocks(prev =>
         prev.map(t => {
