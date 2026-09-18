@@ -1404,9 +1404,7 @@ export default function TimelineView({
                     }}
                   >
                     <div
-                      onPointerDown={e => startDrag('move', b, e)}
-                      className="flex items-center gap-2 w-full h-full px-2.5 overflow-hidden cursor-grab active:cursor-grabbing"
-                      style={{ touchAction: 'none' }}
+                      className="flex items-center gap-2 w-full h-full pl-2.5 pr-10 overflow-hidden"
                     >
                       {/* Buffer Checkbox */}
                       <button
@@ -1452,6 +1450,20 @@ export default function TimelineView({
                       >
                         buffer · {timeLabel}
                       </span>
+                    </div>
+
+                    {/* Drag Handle */}
+                    <div
+                      onPointerDown={e => startDrag('move', b, e)}
+                      className="absolute top-0 right-0 bottom-0 w-10 flex items-center justify-center cursor-grab active:cursor-grabbing hover:bg-[oklch(0.99_0.01_90/0.05)] transition-colors border-l border-[oklch(0.3_0.006_90)]"
+                      style={{ touchAction: 'none' }}
+                      title="Drag to move"
+                    >
+                      <div className="flex flex-col gap-[3px] opacity-40">
+                        <div className="w-1 h-1 rounded-full bg-[oklch(0.8_0.006_90)]" />
+                        <div className="w-1 h-1 rounded-full bg-[oklch(0.8_0.006_90)]" />
+                        <div className="w-1 h-1 rounded-full bg-[oklch(0.8_0.006_90)]" />
+                      </div>
                     </div>
 
                     {/* Resize Handle */}
@@ -1502,9 +1514,7 @@ export default function TimelineView({
                   {isSmall ? (
                     /* Compact Single-Line Layout for short duration tasks */
                     <div 
-                      onPointerDown={e => startDrag('move', b, e)}
-                      className="flex items-center gap-2 w-full h-full px-2.5 overflow-hidden cursor-grab active:cursor-grabbing"
-                      style={{ touchAction: 'none' }}
+                      className="flex items-center gap-2 w-full h-full pl-2.5 pr-10 overflow-hidden"
                     >
                       {/* Checkbox */}
                       <button
@@ -1563,9 +1573,7 @@ export default function TimelineView({
                   ) : (
                     /* Full Card Layout for standard duration blocks */
                     <div 
-                      onPointerDown={e => startDrag('move', b, e)}
-                      className="flex flex-col justify-center h-full px-3 py-1 gap-1 overflow-hidden cursor-grab active:cursor-grabbing"
-                      style={{ touchAction: 'none' }}
+                      className="flex flex-col justify-center h-full pl-3 pr-10 py-1 gap-1 overflow-hidden"
                     >
                       <div className="flex items-center gap-2">
                         {/* Checkbox */}
@@ -1628,6 +1636,20 @@ export default function TimelineView({
                       </div>
                     </div>
                   )}
+
+                  {/* Drag Handle */}
+                  <div
+                    onPointerDown={e => startDrag('move', b, e)}
+                    className="absolute top-0 right-0 bottom-0 w-10 flex items-center justify-center cursor-grab active:cursor-grabbing hover:bg-[oklch(0.99_0.01_90/0.05)] transition-colors border-l border-[oklch(0.3_0.006_90)] rounded-r-lg"
+                    style={{ touchAction: 'none' }}
+                    title="Drag to move"
+                  >
+                    <div className="flex flex-col gap-[3px] opacity-40">
+                      <div className="w-1 h-1 rounded-full bg-[oklch(0.8_0.006_90)]" />
+                      <div className="w-1 h-1 rounded-full bg-[oklch(0.8_0.006_90)]" />
+                      <div className="w-1 h-1 rounded-full bg-[oklch(0.8_0.006_90)]" />
+                    </div>
+                  </div>
 
                   {/* Resize Handle at Bottom */}
                   <div
