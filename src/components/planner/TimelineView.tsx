@@ -126,11 +126,18 @@ export default function TimelineView({
   const hasMovedRef = useRef<boolean>(false)
   
   const pendingMutationsRef = useRef<Set<string>>(new Set())
+  const mutationTimeoutsRef = useRef<Map<string, NodeJS.Timeout>>(new Map())
+  
   const lockMutation = (id: string) => {
     pendingMutationsRef.current.add(id)
-    setTimeout(() => {
+    if (mutationTimeoutsRef.current.has(id)) {
+      clearTimeout(mutationTimeoutsRef.current.get(id)!)
+    }
+    const timeout = setTimeout(() => {
       pendingMutationsRef.current.delete(id)
-    }, 2000)
+      mutationTimeoutsRef.current.delete(id)
+    }, 2500)
+    mutationTimeoutsRef.current.set(id, timeout)
   }
 
   const trackRef = useRef<HTMLDivElement>(null)
@@ -476,23 +483,45 @@ export default function TimelineView({
     })
   }
 
-  // Toggle complete
-  const toggleComplete = async (id: string) => {
-    const target = blocks.find(b => b.id === id)
-    if (!target) return
+  // Checkbox debouncing state
+  const checkQueueRef = useRef<Map<string, NodeJS.Timeout>>(new Map())
+  const checkLatestStateRef = useRef<Map<string, boolean>>(new Map())
 
-    const nextCompleted = !target.completed
+  // Toggle complete (debounced for rapid spamming)
+  const toggleComplete = (id: string) => {
+    const baseTarget = blocks.find(b => b.id === id)
+    if (!baseTarget) return
+
+    const currentlyCompleted = checkLatestStateRef.current.has(id)
+      ? checkLatestStateRef.current.get(id)!
+      : baseTarget.completed
+
+    const nextCompleted = !currentlyCompleted
     const nextCompletedAt = nextCompleted ? new Date().toISOString() : null
 
+    // Optimistic UI updates
+    checkLatestStateRef.current.set(id, nextCompleted)
     setBlocks(prev => prev.map(b => b.id === id ? { ...b, completed: nextCompleted, completedAt: nextCompletedAt } : b))
-
     lockMutation(id)
-    try {
-      await updateItem(id, { is_completed: nextCompleted, completed_at: nextCompletedAt })
-      await logUndo('update', { items: [{ id, is_completed: target.completed, completed_at: target.completedAt }] }, day)
-    } catch (err) {
-      console.error('Error toggling complete:', err)
+
+    if (checkQueueRef.current.has(id)) {
+      clearTimeout(checkQueueRef.current.get(id)!)
     }
+
+    const timeout = setTimeout(async () => {
+      checkQueueRef.current.delete(id)
+      checkLatestStateRef.current.delete(id)
+
+      try {
+        await updateItem(id, { is_completed: nextCompleted, completed_at: nextCompletedAt })
+        await logUndo('update', { items: [{ id, is_completed: currentlyCompleted, completed_at: baseTarget.completedAt }] }, day)
+      } catch (err) {
+        console.error(err)
+        showToast('Failed to update status')
+      }
+    }, 450)
+
+    checkQueueRef.current.set(id, timeout)
   }
 
   // Delete block
