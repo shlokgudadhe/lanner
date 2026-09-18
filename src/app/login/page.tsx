@@ -4,6 +4,8 @@ import { createClient } from '@/utils/supabase/client'
 import { useRouter } from 'next/navigation'
 import { useEffect } from 'react'
 
+import Image from 'next/image'
+
 export default function LoginPage() {
   const router = useRouter()
   const supabase = createClient()
@@ -30,8 +32,8 @@ export default function LoginPage() {
   return (
     <div className="flex min-h-screen flex-col items-center justify-center p-6 bg-[oklch(0.14_0.006_90)] text-[oklch(0.92_0.004_90)] font-sans">
       <div className="max-w-md w-full flex flex-col items-center gap-8 bg-[oklch(0.18_0.006_90)] border border-[oklch(0.28_0.006_90)] rounded-3xl p-8 sm:p-10 shadow-2xl">
-        <div className="hatch w-16 h-16 rounded-2xl border border-[oklch(0.32_0.006_90)] flex items-center justify-center shadow-lg">
-          <span className="text-[#d9a441] font-mono text-2xl font-bold">D</span>
+        <div className="w-16 h-16 rounded-2xl border border-[oklch(0.32_0.006_90)] flex items-center justify-center shadow-lg overflow-hidden relative bg-[oklch(0.14_0.006_90)]">
+          <Image src="/icon.png" alt="LockIn Logo" fill className="object-cover" />
         </div>
         
         <div className="flex flex-col items-center gap-2 text-center">
