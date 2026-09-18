@@ -371,6 +371,8 @@ export default function TimelineView({
       let hasBlocks = false
 
       for (const b of blocks) {
+        if (b.id === draggingId) continue // Prevent infinite scaling loops during drag
+
         if (b.startMin < endHourMin && b.endMin > startHourMin) {
           const dur = b.endMin - b.startMin
           if (dur < minDur) minDur = dur
@@ -385,7 +387,7 @@ export default function TimelineView({
       }
     }
     return scales
-  }, [blocks, isMobile])
+  }, [blocks, isMobile, draggingId])
 
   const getOffsetForMinute = (min: number) => {
     if (min <= MIN_START) return 0
