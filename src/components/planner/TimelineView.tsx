@@ -248,14 +248,6 @@ export default function TimelineView({
               }
             }
 
-            // Proactive full sync:
-            // Ensure any complex changes (cascading shifts, profile updates) match perfectly.
-            // Only trigger if this device isn't currently dragging to avoid interrupting UX.
-            if (!dragRef.current) {
-              startTransition(() => {
-                router.refresh()
-              })
-            }
           }
         )
         .subscribe()
@@ -1341,7 +1333,11 @@ export default function TimelineView({
                       zIndex: draggingId === b.id ? 20 : 3
                     }}
                   >
-                    <div className="flex items-center gap-2 w-full h-full px-2.5 overflow-hidden">
+                    <div
+                      onPointerDown={e => startDrag('move', b, e)}
+                      className="flex items-center gap-2 w-full h-full px-2.5 overflow-hidden cursor-grab active:cursor-grabbing"
+                      style={{ touchAction: 'none' }}
+                    >
                       {/* Buffer Checkbox */}
                       <button
                         onClick={e => {
@@ -1386,16 +1382,6 @@ export default function TimelineView({
                       >
                         buffer · {timeLabel}
                       </span>
-
-                      {/* Grip handle */}
-                      <div
-                        onPointerDown={e => startDrag('move', b, e)}
-                        className="cursor-grab flex-shrink-0 opacity-40 hover:opacity-100 transition-opacity p-2 -mr-1 rounded-md hover:bg-[oklch(0.4_0.006_90/0.2)] flex items-center justify-center"
-                        title="Drag to move"
-                        style={{ touchAction: 'none' }}
-                      >
-                        <span className="text-[18px] text-[oklch(0.65_0.006_90)] font-bold tracking-tight" style={{ letterSpacing: '-0.15em' }}>⋮⋮</span>
-                      </div>
                     </div>
 
                     {/* Resize Handle */}
@@ -1445,7 +1431,11 @@ export default function TimelineView({
                 >
                   {isSmall ? (
                     /* Compact Single-Line Layout for short duration tasks */
-                    <div className="flex items-center gap-2 w-full h-full px-2.5 overflow-hidden">
+                    <div 
+                      onPointerDown={e => startDrag('move', b, e)}
+                      className="flex items-center gap-2 w-full h-full px-2.5 overflow-hidden cursor-grab active:cursor-grabbing"
+                      style={{ touchAction: 'none' }}
+                    >
                       {/* Checkbox */}
                       <button
                         onClick={e => {
@@ -1499,20 +1489,14 @@ export default function TimelineView({
                           title="Conflict overlap detected"
                         />
                       )}
-
-                      {/* Grip Handle */}
-                      <div
-                        onPointerDown={e => startDrag('move', b, e)}
-                        className="cursor-grab flex-shrink-0 opacity-40 hover:opacity-100 transition-opacity p-2 -mr-1 rounded-md hover:bg-[oklch(0.4_0.006_90/0.2)] flex items-center justify-center ml-auto"
-                        title="Drag to move"
-                        style={{ touchAction: 'none' }}
-                      >
-                        <span className="text-[18px] text-[oklch(0.65_0.006_90)] font-bold tracking-tight" style={{ letterSpacing: '-0.15em' }}>⋮⋮</span>
-                      </div>
                     </div>
                   ) : (
                     /* Full Card Layout for standard duration blocks */
-                    <div className="flex flex-col justify-center h-full px-3 py-1 gap-1 overflow-hidden">
+                    <div 
+                      onPointerDown={e => startDrag('move', b, e)}
+                      className="flex flex-col justify-center h-full px-3 py-1 gap-1 overflow-hidden cursor-grab active:cursor-grabbing"
+                      style={{ touchAction: 'none' }}
+                    >
                       <div className="flex items-center gap-2">
                         {/* Checkbox */}
                         <button
@@ -1557,16 +1541,6 @@ export default function TimelineView({
                             title="Conflict overlap detected"
                           />
                         )}
-
-                        {/* Grip Handle */}
-                        <div
-                          onPointerDown={e => startDrag('move', b, e)}
-                          className="cursor-grab flex-shrink-0 opacity-40 hover:opacity-100 transition-opacity p-2.5 -mr-2 rounded-md hover:bg-[oklch(0.4_0.006_90/0.2)] flex items-center justify-center ml-auto"
-                          title="Drag to move"
-                          style={{ touchAction: 'none' }}
-                        >
-                          <span className="text-[20px] text-[oklch(0.65_0.006_90)] font-bold tracking-tight" style={{ letterSpacing: '-0.15em' }}>⋮⋮</span>
-                        </div>
                       </div>
 
                       <div className="flex items-center gap-2 pl-7">
