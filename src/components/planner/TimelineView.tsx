@@ -835,6 +835,8 @@ export default function TimelineView({
       setDraggingId(null)
       if (!d) return
 
+      let sideEffectData: any = null
+
       setBlocks(currentBlocks => {
         const moved = currentBlocks.find(t => t.id === d.id)
         if (!moved) return currentBlocks
@@ -846,10 +848,8 @@ export default function TimelineView({
         const origStartIso = new Date(`${day}T${fmt24(d.origStart)}:00`).toISOString()
         const origEndIso = new Date(`${day}T${fmt24(d.origEnd)}:00`).toISOString()
 
-        // Sync moved item to Supabase
         const startIso = new Date(`${day}T${fmt24(moved.startMin)}:00`).toISOString()
         const endIso = new Date(`${day}T${fmt24(moved.endMin)}:00`).toISOString()
-        updateItem(moved.id, { start_time: startIso, end_time: endIso }).catch(console.error)
 
         // Symmetric bidirectional cascade calculation
         let pushChain: string[] = []
@@ -908,6 +908,34 @@ export default function TimelineView({
           })
         ]
 
+        sideEffectData = {
+          moved,
+          delta,
+          startIso,
+          endIso,
+          origStartIso,
+          origEndIso,
+          pushChain,
+          fillChain,
+          pushDelta,
+          fillDelta,
+          cascadeSnapshot,
+          currentBlocks
+        }
+
+        return currentBlocks
+      })
+
+      // Execute side-effects safely outside the pure updater function
+      if (sideEffectData) {
+        const {
+          moved, delta, startIso, endIso, origStartIso, origEndIso,
+          pushChain, fillChain, pushDelta, fillDelta, cascadeSnapshot, currentBlocks
+        } = sideEffectData
+
+        // Sync moved item to Supabase
+        updateItem(moved.id, { start_time: startIso, end_time: endIso }).catch(console.error)
+
         if (pushChain.length > 0 || fillChain.length > 0) {
           if (cascadeMode === 'never') {
             if (pushChain.length > 0) showToast('Times now overlap')
@@ -931,9 +959,7 @@ export default function TimelineView({
           // No cascade, single moved/resized item logged atomically
           logUndo('update', { items: [{ id: moved.id, start_time: origStartIso, end_time: origEndIso }] }, day).catch(console.error)
         }
-
-        return currentBlocks
-      })
+      }
     }
 
     window.addEventListener('pointermove', onPointerMove)
